@@ -1,0 +1,18 @@
+# Secrets never live in the repo — the real file is
+# ~dev/.config/wrf-orchestrator/secrets.env (chmod 600, hand-maintained).
+secrets.env
+*.env
+!.env.example
+!secrets.env.example
+
+# Local, non-secret runtime config
+.env
+
+# Per-run, per-stage logs
+logs/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
