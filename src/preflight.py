@@ -14,7 +14,7 @@ from pathlib import Path
 from config import CANONICAL_SECRETS_PATH, missing_secrets
 from repos import Repos
 
-MANIFEST_URL = "https://steamdb.info/app/1491000/depot/1491005/manifests/"
+MANIFEST_URL = "https://steamdb.info/depot/1491005/manifests/"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 

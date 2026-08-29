@@ -174,7 +174,7 @@ Value priority is **argument > .env parameter > default**.
   - [SteamDB](https://steamdb.info/app/1491000/depot/1491005/manifests/)
 
 * **TARGET_BRANCH** - Branch in the data repo the Parser pushes to.
-  - Default: `"testing-grounds"`
+  - Default: `"dev"`
   - Command line: `--target-branch`
 
 * **ASSUME_MANIFEST_CONFIRMED** - Skip the interactive manifest-date confirmation gate. Requires GAME_VERSION to be set explicitly. For non-interactive runs only.
@@ -208,9 +208,19 @@ Value priority is **argument > .env parameter > default**.
   - Command line: `--should-download-dependencies`
   - Depends on: `SHOULD_EXPORT`
 
+* **FORCE_DOWNLOAD_DEPENDENCIES** - Forwarded to the Exporter: re-download dependencies even if already present.
+  - Default: `"false"`
+  - Command line: `--force-download-dependencies`
+  - Depends on: `SHOULD_EXPORT`
+
 * **SHOULD_DOWNLOAD_STEAM_GAME** - Forwarded to the Exporter: download/update the game via DepotDownloader.
   - Default: `"false"`
   - Command line: `--should-download-steam-game`
+  - Depends on: `SHOULD_EXPORT`
+
+* **FORCE_STEAM_DOWNLOAD** - Forwarded to the Exporter: re-download/update the game even if already present.
+  - Default: `"false"`
+  - Command line: `--force-steam-download`
   - Depends on: `SHOULD_EXPORT`
 
 * **SHOULD_GET_MAPPER** - Forwarded to the Exporter: generate the .usmap (runs as dev under gamescope headless; see README).
@@ -218,9 +228,19 @@ Value priority is **argument > .env parameter > default**.
   - Command line: `--should-get-mapper`
   - Depends on: `SHOULD_EXPORT`
 
+* **FORCE_GET_MAPPER** - Forwarded to the Exporter: re-generate the .usmap even if it already exists.
+  - Default: `"false"`
+  - Command line: `--force-get-mapper`
+  - Depends on: `SHOULD_EXPORT`
+
 * **SHOULD_BATCH_EXPORT** - Forwarded to the Exporter: run BatchExport to produce JSON.
   - Default: `"false"`
   - Command line: `--should-batch-export`
+  - Depends on: `SHOULD_EXPORT`
+
+* **FORCE_EXPORT** - Forwarded to the Exporter: re-run BatchExport even if the output directory is not empty.
+  - Default: `"false"`
+  - Command line: `--force-export`
   - Depends on: `SHOULD_EXPORT`
 
 * **SHOULD_EXPORT_TEXTURES** - Forwarded to the Exporter/Parser: export and push textures.

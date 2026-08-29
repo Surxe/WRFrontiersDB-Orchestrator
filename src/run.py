@@ -36,6 +36,23 @@ from stages import site as site_stage  # noqa: E402
 
 def main(args: argparse.Namespace) -> int:
     config.load_secrets()
+
+    # --pipeline: shorthand for a full export run — enable the EXPORT stage and
+    # its four core sub-steps (download the Steam game, get the mapper, batch
+    # export, export textures). Only fills flags the user left unset, so an
+    # explicit --should-* on the CLI still wins. Other stages/sub-steps
+    # (dependencies, parse, push, site, headless) keep their own defaults.
+    if getattr(args, "pipeline", False):
+        for attr in (
+            "should_export",
+            "should_download_steam_game",
+            "should_get_mapper",
+            "should_batch_export",
+            "should_export_textures",
+        ):
+            if getattr(args, attr, None) is None:
+                setattr(args, attr, True)
+
     options = init_options(args=args, log_file=None)
 
     repos = Repos(wrf_root=options.wrf_root, repos_dir=options.repos_dir)
@@ -75,6 +92,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="WRFrontiersDB-Orchestrator — patch-day pipeline driver.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--pipeline",
+        action="store_true",
+        help="Shorthand for a full export run: enables --should-export with "
+             "--should-download-steam-game, --should-get-mapper, "
+             "--should-batch-export, and --should-export-textures. Explicit "
+             "--should-* flags still override the preset.",
     )
     ArgumentWriter().add_arguments(parser)
     sys.exit(main(parser.parse_args()))

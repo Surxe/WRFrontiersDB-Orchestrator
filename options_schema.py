@@ -112,7 +112,7 @@ OPTIONS_SCHEMA = {
         "env": "TARGET_BRANCH",
         "arg": "--target-branch",
         "type": str,
-        "default": "testing-grounds",
+        "default": "dev",
         "section": "Patch",
         "help": "Branch in the data repo the Parser pushes to.",
     },
@@ -172,6 +172,16 @@ OPTIONS_SCHEMA = {
         "help": "Forwarded to the Exporter: download/update its tool dependencies.",
         "depends_on": ["SHOULD_EXPORT"],
     },
+    "FORCE_DOWNLOAD_DEPENDENCIES": {
+        "env": "FORCE_DOWNLOAD_DEPENDENCIES",
+        "arg": "--force-download-dependencies",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: re-download dependencies even if "
+                "already present.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
     "SHOULD_DOWNLOAD_STEAM_GAME": {
         "env": "SHOULD_DOWNLOAD_STEAM_GAME",
         "arg": "--should-download-steam-game",
@@ -179,6 +189,16 @@ OPTIONS_SCHEMA = {
         "default": False,
         "section": "Exporter",
         "help": "Forwarded to the Exporter: download/update the game via DepotDownloader.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
+    "FORCE_STEAM_DOWNLOAD": {
+        "env": "FORCE_STEAM_DOWNLOAD",
+        "arg": "--force-steam-download",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: re-download/update the game even if "
+                "already present.",
         "depends_on": ["SHOULD_EXPORT"],
     },
     "SHOULD_GET_MAPPER": {
@@ -191,6 +211,16 @@ OPTIONS_SCHEMA = {
                 "gamescope headless; see README).",
         "depends_on": ["SHOULD_EXPORT"],
     },
+    "FORCE_GET_MAPPER": {
+        "env": "FORCE_GET_MAPPER",
+        "arg": "--force-get-mapper",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: re-generate the .usmap even if it "
+                "already exists.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
     "SHOULD_BATCH_EXPORT": {
         "env": "SHOULD_BATCH_EXPORT",
         "arg": "--should-batch-export",
@@ -198,6 +228,16 @@ OPTIONS_SCHEMA = {
         "default": False,
         "section": "Exporter",
         "help": "Forwarded to the Exporter: run BatchExport to produce JSON.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
+    "FORCE_EXPORT": {
+        "env": "FORCE_EXPORT",
+        "arg": "--force-export",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: re-run BatchExport even if the output "
+                "directory is not empty.",
         "depends_on": ["SHOULD_EXPORT"],
     },
     "SHOULD_EXPORT_TEXTURES": {
