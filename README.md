@@ -20,6 +20,12 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ SITE
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
 | SITE | WRFrontiersDB-Site | `npm run build` against the updated data repo |
 
+The SITE build resolves its styling from **WRFrontiersDB-Design**, the shared
+design system (tokens + self-hosted brand font) that both front-ends —
+WRFrontiersDB-Site and the WRFrontiers-Discount-Visualizer — vendor as a git
+submodule to stay visually in sync. It is not a pipeline stage the orchestrator
+runs; each consuming site pulls it in at build time.
+
 Out of scope for now: the discount visualizer and the news-research snapshot
 (they have their own cadence; a tighter pipeline there comes later).
 
