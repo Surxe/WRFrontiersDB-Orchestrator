@@ -107,6 +107,12 @@ is enabled without it.
 
 ## Usage
 
+On this workstation the pipeline is normally launched by ethan via the
+`wrf-orchestrator` bin (see [Launch on the workstation](#launch-on-the-workstation)),
+not by calling `run.py` directly. The examples below show the underlying
+`run.py` invocation; substitute `bin/run-pipeline` for `python src/run.py` to get
+the node/npm environment set up automatically (see below).
+
 ```bash
 # Full patch day (all stages; preflight confirms the version against the manifest)
 python src/run.py --game-version 2026-08-22
@@ -121,6 +127,23 @@ python src/run.py --game-version 2026-08-22 --assume-manifest-confirmed true
 
 Running with **no** `SHOULD_` flags runs the whole pipeline (all stages).
 Value priority is **argument > .env parameter > default**.
+
+### Launch on the workstation
+
+The pipeline is split into a privileged launcher and a dev-side entry:
+
+- **`wrf-orchestrator`** (in `my-system`, deployed to `~ethan/.local/bin`) is the
+  ethan-side wrapper. It reads the ethan-owned secrets and hops to `dev` via
+  `sudo -u dev`, whose fresh initgroups is what grants the mapper its
+  `render`/`video` groups. It does nothing else.
+- **`bin/run-pipeline`** (this repo) is the dev-side entry the wrapper execs. It
+  owns the run *environment* — it sources dev's **nvm** so `node`/`npm` are on
+  `PATH` — then `cd`s here and execs `run.py` with the passed-through args.
+
+The nvm step matters because the launch is a non-interactive shell: dev's
+`~/.bashrc` (which sources nvm) never runs, so without this the SITE stage's
+`npm run build` dies with `FileNotFoundError: 'npm'`. Running `bin/run-pipeline`
+directly as dev works too (re-sourcing nvm is a no-op).
 
 ## Options
 

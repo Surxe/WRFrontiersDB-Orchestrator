@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# run-pipeline — dev-side entry point for the WRFrontiersDB patch-day pipeline.
+#
+# This is the NON-privileged half of the launch. The ethan-side wrapper
+# (my-system/users/ethan/localbin/wrf-orchestrator) does the privileged part:
+# it reads ethan-only secrets and hops here via `sudo -u dev`, whose fresh
+# initgroups is what grants the mapper its render/video groups. This script owns
+# only the ENVIRONMENT the pipeline needs, and nothing privileged.
+#
+# Why it exists: node/npm come from dev's nvm, which is sourced only by an
+# interactive ~/.bashrc. The pipeline is launched via a non-interactive shell
+# (the sudo hop), so nvm never loads and the SITE stage's `npm run build` dies
+# with `FileNotFoundError: 'npm'`. Sourcing nvm here puts node/npm on PATH for
+# run.py and every child stage it spawns.
+#
+# Safe to run directly as dev too (re-sourcing nvm is a no-op); args pass
+# straight through to src/run.py, e.g.
+#   bin/run-pipeline --game-version 2026-08-22
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load dev's nvm -> puts the default node's bin (node/npm) on PATH.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+# shellcheck disable=SC1091
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+cd "$REPO" || exit 1
+exec .venv/bin/python src/run.py "$@"
