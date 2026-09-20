@@ -49,9 +49,11 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         env["STEAM_PASSWORD"] = options.steam_password
 
     # Headless mapper needs the GPU runtime dir, gamescope on PATH, and no
-    # inherited X DISPLAY (pure headless as dev).
+    # inherited X DISPLAY (pure headless as dev). Derive the runtime dir from the
+    # running user's uid so it's portable across boxes (dev is 1001 on the
+    # workstation, 1000 on the home-server) instead of a hardcoded /run/user/1001.
     if options.should_get_mapper and options.headless:
-        env["XDG_RUNTIME_DIR"] = "/run/user/1001"
+        env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
         env["PATH"] = "/usr/games:" + os.environ.get("PATH", "")
         env.pop("DISPLAY", None)
 
