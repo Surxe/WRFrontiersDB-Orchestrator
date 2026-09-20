@@ -115,18 +115,34 @@ the node/npm environment set up automatically (see below).
 
 ```bash
 # Full patch day (all stages; preflight confirms the version against the manifest)
-python src/run.py --game-version 2026-08-22
+python src/run.py --patch-day --game-version 2026-08-22
+
+# Force a patch day: re-download and re-export even where output already exists
+python src/run.py --force-patch-day --game-version 2026-08-22
 
 # Re-parse + rebuild the site from an already-exported dump (no Steam pull)
 python src/run.py --should-parse true --should-build-site true \
                   --game-version 2026-08-22
 
 # Non-interactive (e.g. a scheduled run): version + gate skip both required
-python src/run.py --game-version 2026-08-22 --assume-manifest-confirmed true
+python src/run.py --patch-day --game-version 2026-08-22 --assume-manifest-confirmed true
 ```
 
 Running with **no** `SHOULD_` flags runs the whole pipeline (all stages).
 Value priority is **argument > .env parameter > default**.
+
+### Shortcuts
+
+These preset flags fill in the individual `--should-*` / `--force-*` gates so a
+common run is one flag. They only set gates you leave unset, so an explicit
+`--should-*` / `--force-*` on the same command still wins.
+
+- **`--patch-day`** — the whole pipeline: every stage (export, parse, push, build
+  site) and every Exporter sub-step. Equivalent to passing no `SHOULD_` flags,
+  but named and explicit.
+- **`--force-patch-day`** — `--patch-day` plus every `--force-*` flag, so each
+  stage re-does work whose output already exists (re-download dependencies,
+  re-download the game, re-generate the mapper, re-run BatchExport).
 
 ### Launch on the workstation
 
