@@ -6,7 +6,8 @@ and streamed to a per-stage log. Paths derive from WRF_ROOT; secrets overlay fro
 ~dev/.config/wrf-orchestrator/secrets.env and reach sub-repos via the env.
 
 Examples:
-    python src/run.py --game-version 2026-08-22          # full patch day
+    python src/run.py --patch-day --game-version 2026-08-22        # full patch day
+    python src/run.py --force-patch-day --game-version 2026-08-22  # + force re-do
     python src/run.py --should-parse true --should-build-site true \
                       --game-version 2026-08-22          # re-parse + rebuild only
 """
@@ -34,24 +35,49 @@ from stages import parse as parse_stage  # noqa: E402
 from stages import site as site_stage  # noqa: E402
 
 
+# --patch-day: the whole pipeline — every stage gate and every export sub-step.
+# Equivalent to running with no SHOULD_ flags (optionsconfig's "all-false ->
+# all-true" rule), but named and explicit. The sub-steps must be set too: turning
+# on only the stage gates would leave the sub-steps at their False default, so
+# they wouldn't hit the all-false rule and the EXPORT stage would run empty.
+_PATCH_DAY_FLAGS = (
+    "should_export",
+    "should_parse",
+    "should_push_data",
+    "should_build_site",
+    "should_download_dependencies",
+    "should_download_steam_game",
+    "should_get_mapper",
+    "should_batch_export",
+    "should_export_textures",
+)
+
+# --force-patch-day: a patch day that re-does work whose output already exists.
+# Layered on top of the patch-day preset.
+_FORCE_FLAGS = (
+    "force_download_dependencies",
+    "force_steam_download",
+    "force_get_mapper",
+    "force_export",
+)
+
+
+def _apply_preset(args: argparse.Namespace, flags: tuple[str, ...]) -> None:
+    """Turn on each flag the user left unset, so an explicit CLI value wins."""
+    for attr in flags:
+        if getattr(args, attr, None) is None:
+            setattr(args, attr, True)
+
+
 def main(args: argparse.Namespace) -> int:
     config.load_secrets()
 
-    # --pipeline: shorthand for a full export run — enable the EXPORT stage and
-    # its four core sub-steps (download the Steam game, get the mapper, batch
-    # export, export textures). Only fills flags the user left unset, so an
-    # explicit --should-* on the CLI still wins. Other stages/sub-steps
-    # (dependencies, parse, push, site, headless) keep their own defaults.
-    if getattr(args, "pipeline", False):
-        for attr in (
-            "should_export",
-            "should_download_steam_game",
-            "should_get_mapper",
-            "should_batch_export",
-            "should_export_textures",
-        ):
-            if getattr(args, attr, None) is None:
-                setattr(args, attr, True)
+    # Preset shortcuts, each only filling flags left unset (explicit --should-*/
+    # --force-* on the CLI still wins). --force-patch-day implies --patch-day.
+    if getattr(args, "patch_day", False) or getattr(args, "force_patch_day", False):
+        _apply_preset(args, _PATCH_DAY_FLAGS)
+    if getattr(args, "force_patch_day", False):
+        _apply_preset(args, _FORCE_FLAGS)
 
     options = init_options(args=args, log_file=None)
 
@@ -94,12 +120,20 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--pipeline",
+        "--patch-day",
         action="store_true",
-        help="Shorthand for a full export run: enables --should-export with "
-             "--should-download-steam-game, --should-get-mapper, "
-             "--should-batch-export, and --should-export-textures. Explicit "
-             "--should-* flags still override the preset.",
+        help="Shorthand for a full patch day: enables every stage and every "
+             "export sub-step (export, parse, push, build site, plus all the "
+             "Exporter sub-steps). Same as passing no --should-* flags, but "
+             "explicit. Explicit --should-* flags still override the preset.",
+    )
+    parser.add_argument(
+        "--force-patch-day",
+        action="store_true",
+        help="Like --patch-day, but also forces every stage to re-do work whose "
+             "output already exists (--force-download-dependencies, "
+             "--force-steam-download, --force-get-mapper, --force-export). "
+             "Explicit --should-*/--force-* flags still override the preset.",
     )
     ArgumentWriter().add_arguments(parser)
     sys.exit(main(parser.parse_args()))
