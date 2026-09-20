@@ -111,6 +111,8 @@ def main(args: argparse.Namespace) -> int:
             return 1
 
     runlog.banner("Pipeline complete")
+    # Prune old patch versions (keep 2 most recent), keeping steam-download static.
+    repos.prune_old_versions(keep=2)
     return 0
 
 

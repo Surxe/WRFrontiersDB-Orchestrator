@@ -53,16 +53,49 @@ class Repos:
 
     @property
     def exports_dir(self) -> Path:
-        # Exporter OUTPUT_DATA_DIR == Parser EXPORT_DIR (the unified hand-off).
+        # DEPRECATED: use exports_dir_for_version(game_version) instead.
+        # Kept for backwards compat, but versioned dirs are the new pattern (t-0122).
         return self.data_root / "exports"
+
+    def exports_dir_for_version(self, game_version: str) -> Path:
+        # Dated per patch, e.g. .../data/exports/2026-08-22
+        return self.data_root / "exports" / game_version
 
     @property
     def parsed_dir(self) -> Path:
+        # DEPRECATED: use parsed_dir_for_version(game_version) instead.
         return self.data_root / "parsed"
+
+    def parsed_dir_for_version(self, game_version: str) -> Path:
+        # Dated per patch, e.g. .../data/parsed/2026-08-22
+        return self.data_root / "parsed" / game_version
 
     @property
     def textures_dir(self) -> Path:
+        # DEPRECATED: use textures_dir_for_version(game_version) instead.
         return self.data_root / "textures"
+
+    def textures_dir_for_version(self, game_version: str) -> Path:
+        # Dated per patch, e.g. .../data/textures/2026-08-22
+        return self.data_root / "textures" / game_version
+
+    def prune_old_versions(self, keep: int = 2) -> None:
+        """Delete old version directories, keeping only the newest `keep` patches.
+
+        Applied to exports, parsed, textures, and mapper after a successful patch
+        run. Sorts by directory name (ISO date string); deletes oldest, keeping
+        newest. A no-op if fewer than keep+1 versions exist.
+        """
+        import shutil
+        for subdir in ["exports", "parsed", "textures", "mapper"]:
+            parent = self.data_root / subdir
+            if not parent.is_dir():
+                continue
+            # List version dirs (ISO date strings like 2026-08-22)
+            versions = sorted([d.name for d in parent.iterdir() if d.is_dir()])
+            to_delete = versions[:-keep]  # All but the last `keep`
+            for v in to_delete:
+                shutil.rmtree(parent / v, ignore_errors=False)
 
     # --- Linux mapper runtime paths --------------------------------------
     @property
