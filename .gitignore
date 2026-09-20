@@ -11,6 +11,9 @@ secrets.env
 # Per-run, per-stage logs
 logs/
 
+# Probe state (src/probe.py's last-seen manifest GID) — local runtime state.
+data/
+
 # Python
 .venv/
 __pycache__/

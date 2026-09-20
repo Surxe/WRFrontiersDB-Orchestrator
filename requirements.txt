@@ -1,3 +1,7 @@
 python-dotenv==1.1.1
 loguru==0.7.3
 optionsconfig
+# steam[client]: anonymous PICS probe (src/probe.py) — the [client] extra pulls
+# gevent/eventemitter (bare `steam` is missing eventemitter). Used by the patch
+# probe today; will front the pipeline trigger once that's wired.
+steam[client]==1.4.4
