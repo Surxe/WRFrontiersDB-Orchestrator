@@ -46,6 +46,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from versioning import derive_version
+
 # --- War Robots: Frontiers on Steam -----------------------------------------
 APP_ID = 1491000
 DEPOT_ID = "1491005"  # PICS keys depots by string id
@@ -207,12 +209,23 @@ def main(argv: list[str] | None = None) -> int:
         emit({"event": "no-change", "gid": gid})
         return EXIT_NO_CHANGE
 
-    # New public manifest GID -> a patch shipped.
+    # New public manifest GID -> a patch shipped. Derive the version id future
+    # steps use from the manifest's unix timestamp (UTC calendar day), keyed on the
+    # GID so a second patch the same day gets a -N suffix. Fall back to now if Steam
+    # didn't report timeupdated, so we always produce a version.
+    ts = current["timeupdated"]
+    if ts is None:
+        ts = int(time.time())
+        logger.warning("manifest timeupdated missing; using current time for the version date")
+    registry_path = args.state.parent / "version_registry.json"
+    version = derive_version(ts, gid, registry_path)
+
     save_state(args.state, gid, current["buildid"], current["timeupdated"])
-    logger.warning("PATCH DETECTED: gid {} -> {} (buildid {})",
-                   prev_gid, gid, current["buildid"])
+    logger.warning("PATCH DETECTED: gid {} -> {} (buildid {}) -> version {}",
+                   prev_gid, gid, current["buildid"], version)
     emit({"event": "patch-detected", "old_gid": prev_gid, "new_gid": gid,
-          "buildid": current["buildid"], "timeupdated": current["timeupdated"]})
+          "buildid": current["buildid"], "timeupdated": current["timeupdated"],
+          "version": version})
     return EXIT_UPDATE
 
 

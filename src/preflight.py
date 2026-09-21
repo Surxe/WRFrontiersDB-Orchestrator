@@ -15,7 +15,9 @@ from config import CANONICAL_SECRETS_PATH, missing_secrets
 from repos import Repos
 
 MANIFEST_URL = "https://steamdb.info/depot/1491005/manifests/"
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# yyyy-mm-dd, plus an optional -N suffix for a 2nd+ patch on the same UTC day
+# (the probe derives these; see src/versioning.py).
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(-\d+)?$")
 
 
 class PreflightError(Exception):
@@ -45,7 +47,7 @@ def confirm_game_version(options, *, interactive: bool) -> str:
                 "without a human)."
             )
         if not _DATE_RE.match(given):
-            raise PreflightError(f"GAME_VERSION must be yyyy-mm-dd, got: {given!r}")
+            raise PreflightError(f"GAME_VERSION must be yyyy-mm-dd[-N], got: {given!r}")
         print(f"[preflight] Manifest confirmation skipped; using GAME_VERSION={given}")
         return given
 
@@ -75,7 +77,7 @@ def confirm_game_version(options, *, interactive: bool) -> str:
         chosen = input("  Enter the manifest release date (yyyy-mm-dd): ").strip()
 
     if not _DATE_RE.match(chosen):
-        raise PreflightError(f"Not a valid yyyy-mm-dd date: {chosen!r}")
+        raise PreflightError(f"Not a valid yyyy-mm-dd[-N] version: {chosen!r}")
     print(f"[preflight] Using GAME_VERSION={chosen}")
     return chosen
 
