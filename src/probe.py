@@ -17,19 +17,22 @@ and does NOT read the Exporter's workstation manifest.txt (which doesn't exist o
 this box). It carries no secrets — the PICS query is anonymous. (The eventual real
 download needs owned Steam creds; that's out of scope for the probe.)
 
-SCOPE: probe only. On a detected patch it logs and advances its state — it does
-NOT trigger the pipeline. Wiring the orchestrator trigger is a separate later PR.
-When that lands, advancing the state should be gated on a successful trigger
-(mirroring the News-Scraper's "only mark the week parsed once it's handed off"),
-so a failed trigger is retried rather than silently swallowed.
+On a detected patch the probe derives the version id (see src/versioning.py) and,
+if --on-patch-cmd is given, hands off to it with {version} substituted (the home
+box wires this to `systemctl start wrf-orchestrator@{version}`). The state advance
+is GATED on that hand-off: state is only marked seen once the command exits 0, so a
+failed hand-off is retried on the next poll rather than silently swallowed (mirrors
+the News-Scraper's "only mark the week parsed once it's handed off"). With no
+--on-patch-cmd the probe just logs + advances (the old detector-only behaviour).
 
 Exit codes (the machine-readable signal alongside the log):
     0   clean check, no new patch. Also the first-run case: the current GID is
         recorded as the baseline and reported, so we never fire on first run.
-    10  new patch detected (public manifest GID changed). State is advanced.
-    1   probe error (transient CM/login failure, unexpected PICS shape, ...).
-        State is left UNTOUCHED and no update is signalled, so the next run
-        re-checks. "Probe failed" is deliberately never "patch detected".
+    10  new patch detected (public manifest GID changed) and, if an --on-patch-cmd
+        was given, handed off successfully. State is advanced.
+    1   probe error (transient CM/login failure, unexpected PICS shape, ...) OR a
+        failed hand-off. State is left UNTOUCHED and no update is committed, so the
+        next run re-checks. "Probe failed" is deliberately never "patch detected".
 
 The systemd unit sets SuccessExitStatus=10 so a detected patch is not a "failed"
 unit; only exit 1 (a real probe error) marks the unit failed.
@@ -40,6 +43,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -178,6 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--retry-delay", type=float,
                         default=float(os.environ.get("WRF_PROBE_RETRY_DELAY", 5)),
                         help="seconds between retries (default 5)")
+    parser.add_argument("--on-patch-cmd", default=os.environ.get("WRF_PROBE_ON_PATCH_CMD"),
+                        help="command run on patch detection, with {version} "
+                        "substituted (split shell-style, run WITHOUT a shell). The "
+                        "state advance is gated on it: exit 0 -> state advances and "
+                        "the probe exits 10; non-zero -> state untouched and the "
+                        "probe exits 1 so the next poll retries. Omit to just detect "
+                        "+ advance (no hand-off).")
     args = parser.parse_args(argv)
 
     _configure_logging()
@@ -219,10 +231,29 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("manifest timeupdated missing; using current time for the version date")
     registry_path = args.state.parent / "version_registry.json"
     version = derive_version(ts, gid, registry_path)
-
-    save_state(args.state, gid, current["buildid"], current["timeupdated"])
     logger.warning("PATCH DETECTED: gid {} -> {} (buildid {}) -> version {}",
                    prev_gid, gid, current["buildid"], version)
+
+    # Hand off to the pipeline, if wired. The state advance is GATED on this: we only
+    # mark the GID seen once the hand-off succeeds, so a failed trigger is retried on
+    # the next poll instead of being lost. The version assignment (registry, above) is
+    # idempotent, so a retry reuses the same version.
+    if args.on_patch_cmd:
+        trig = [tok.replace("{version}", version) for tok in shlex.split(args.on_patch_cmd)]
+        logger.info("handing off: {}", " ".join(trig))
+        try:
+            rc = subprocess.run(trig, check=False).returncode
+        except OSError as exc:
+            logger.error("hand-off failed to launch ({}); state untouched, will retry", exc)
+            emit({"event": "trigger-error", "new_gid": gid, "version": version, "error": str(exc)})
+            return EXIT_ERROR
+        if rc != 0:
+            logger.error("hand-off exited {}; state untouched, will retry", rc)
+            emit({"event": "trigger-error", "new_gid": gid, "version": version, "returncode": rc})
+            return EXIT_ERROR
+        logger.info("hand-off launched ok")
+
+    save_state(args.state, gid, current["buildid"], current["timeupdated"])
     emit({"event": "patch-detected", "old_gid": prev_gid, "new_gid": gid,
           "buildid": current["buildid"], "timeupdated": current["timeupdated"],
           "version": version})
