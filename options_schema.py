@@ -94,9 +94,11 @@ OPTIONS_SCHEMA = {
         "type": str,
         "default": None,
         "section": "Patch",
-        "help": "Release date of the patch being processed, as yyyy-mm-dd. Names "
-                "the .usmap, the data archive dir, and the Parser push. Confirmed "
-                "against the SteamDB manifest date in preflight.",
+        "help": "Version id of the patch being processed, as yyyy-mm-dd[-N]. Names "
+                "the .usmap, the data archive dir, and the Parser push. By default "
+                "the probe derives it from the manifest's unix timestamp (UTC day); "
+                "a 2nd+ patch on the same day gets a -N suffix (-1, -2, ...). Pass "
+                "explicitly to override.",
         "example": "2026-08-22",
     },
     "MANIFEST_ID": {
