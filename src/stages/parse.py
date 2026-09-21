@@ -14,15 +14,18 @@ from stages import b
 
 def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
     py = repos.venv_python(repos.parser_dir)
+    exports_dir = repos.exports_dir_for_version(game_version)
+    parsed_dir = repos.parsed_dir_for_version(game_version)
+    textures_dir = repos.textures_dir_for_version(game_version)
 
     cmd = [
         str(py), "src/run.py",
         "--log-level", options.log_level,
         "--should-parse", b(options.should_parse),
         "--game-name", "WRFrontiers",
-        "--export-dir", str(repos.exports_dir),
-        "--output-dir", str(repos.parsed_dir),
-        "--texture-output-dir", str(repos.textures_dir),
+        "--export-dir", str(exports_dir),
+        "--output-dir", str(parsed_dir),
+        "--texture-output-dir", str(textures_dir),
         "--should-push-data", b(options.should_push_data),
         "--game-version", game_version,
         "--target-branch", options.target_branch,

@@ -20,6 +20,9 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
     py = repos.venv_python(repos.exporter_dir)
     mapper_file = repos.mapper_file(game_version)
 
+    exports_dir = repos.exports_dir_for_version(game_version)
+    textures_dir = repos.textures_dir_for_version(game_version)
+
     cmd = [
         str(py), "src/run.py",
         "--log-level", options.log_level,
@@ -36,7 +39,7 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         "--manifest-id", options.manifest_id,
         "--steam-game-download-dir", str(repos.steam_download_dir),
         "--output-mapper-file", str(mapper_file),
-        "--output-data-dir", str(repos.exports_dir),
+        "--output-data-dir", str(exports_dir),
         "--wine-prefix", str(repos.wine_prefix),
         "--proton-path", str(repos.proton_path),
     ]
