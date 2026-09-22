@@ -208,7 +208,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
 
 #### Patch
 
-* **GAME_VERSION** - Release date of the patch being processed, as yyyy-mm-dd. Names the .usmap, the data archive dir, and the Parser push. Confirmed against the SteamDB manifest date in preflight.
+* **GAME_VERSION** - Version id of the patch being processed, as yyyy-mm-dd[-N]. Names the .usmap, the data archive dir, and the Parser push. By default the probe derives it from the manifest's unix timestamp (UTC day); a 2nd+ patch on the same day gets a -N suffix (-1, -2, ...). Pass explicitly to override.
   - Example: `"2026-08-22"`
   - Default: None
   - Command line: `--game-version`
@@ -257,6 +257,12 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--force-download-dependencies`
   - Depends on: `SHOULD_EXPORT`
+
+* **BATCH_EXPORT_RELEASE** - Forwarded to the Exporter: CUE4P-BatchExport release tag to install. 'latest' uses the newest stable release; set a tag (e.g. 'v1.6.2-test.1') to pin a version. Roll back by setting this to 'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.
+  - Default: `"latest"`
+  - Command line: `--batch-export-release`
+  - Depends on: `SHOULD_EXPORT`
+  - [Releases](https://github.com/Surxe/CUE4P-BatchExport/releases)
 
 * **SHOULD_DOWNLOAD_STEAM_GAME** - Forwarded to the Exporter: download/update the game via DepotDownloader.
   - Default: `"false"`

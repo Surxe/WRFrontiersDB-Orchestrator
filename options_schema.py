@@ -184,6 +184,19 @@ OPTIONS_SCHEMA = {
                 "already present.",
         "depends_on": ["SHOULD_EXPORT"],
     },
+    "BATCH_EXPORT_RELEASE": {
+        "env": "BATCH_EXPORT_RELEASE",
+        "arg": "--batch-export-release",
+        "type": str,
+        "default": "latest",
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: CUE4P-BatchExport release tag to install. "
+                "'latest' uses the newest stable release; set a tag (e.g. "
+                "'v1.6.2-test.1') to pin a version. Roll back by setting this to "
+                "'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.",
+        "links": {"Releases": "https://github.com/Surxe/CUE4P-BatchExport/releases"},
+        "depends_on": ["SHOULD_EXPORT"],
+    },
     "SHOULD_DOWNLOAD_STEAM_GAME": {
         "env": "SHOULD_DOWNLOAD_STEAM_GAME",
         "arg": "--should-download-steam-game",
