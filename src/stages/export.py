@@ -32,6 +32,7 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         "--should-batch-export", b(options.should_batch_export),
         "--should-export-textures", b(options.should_export_textures),
         "--force-download-dependencies", b(options.force_download_dependencies),
+        "--batch-export-release", options.batch_export_release,
         "--force-steam-download", b(options.force_steam_download),
         "--force-get-mapper", b(options.force_get_mapper),
         "--force-export", b(options.force_export),
