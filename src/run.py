@@ -34,6 +34,7 @@ from stages import export as export_stage  # noqa: E402
 from stages import parse as parse_stage  # noqa: E402
 from stages import releases as releases_stage  # noqa: E402
 from stages import site as site_stage  # noqa: E402
+from stages import site_deploy as site_deploy_stage  # noqa: E402
 
 
 # --patch-day: the whole pipeline — every stage gate and every export sub-step.
@@ -47,6 +48,7 @@ _PATCH_DAY_FLAGS = (
     "should_push_data",
     "should_detect_releases",
     "should_build_site",
+    "should_deploy_site",
     "should_download_dependencies",
     "should_download_steam_game",
     "should_get_mapper",
@@ -101,6 +103,7 @@ def main(args: argparse.Namespace) -> int:
         ("PARSE", options.should_parse or options.should_push_data, parse_stage.run),
         ("RELEASES", options.should_detect_releases, releases_stage.run),
         ("SITE", options.should_build_site, site_stage.run),
+        ("SITE-DEPLOY", options.should_deploy_site, site_deploy_stage.run),
     ]
 
     for name, enabled, fn in stages:

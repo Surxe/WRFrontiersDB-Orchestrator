@@ -7,6 +7,7 @@ fails in seconds rather than after a multi-hour Steam pull.
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -122,6 +123,13 @@ def validate(options, repos: Repos, *, game_version: str) -> None:
     if options.should_build_site:
         if not (repos.site_dir / "package.json").is_file():
             errors.append(f"Site repo missing package.json: {repos.site_dir}")
+
+    if options.should_deploy_site:
+        # The deploy is a `gh workflow run` dispatch; fail early if gh is absent
+        # (auth/permission problems still only surface at dispatch time).
+        if shutil.which("gh") is None:
+            errors.append("SHOULD_DEPLOY_SITE needs the `gh` CLI on PATH to dispatch "
+                          "the Site Pages workflow, but it was not found.")
 
     # BatchExport needs a mapper; if we won't generate one, it must already exist.
     if options.should_export and options.should_batch_export and not options.should_get_mapper:
