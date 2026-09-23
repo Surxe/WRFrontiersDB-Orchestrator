@@ -32,6 +32,7 @@ from logging_stream import RunLogger  # noqa: E402
 from repos import Repos  # noqa: E402
 from stages import export as export_stage  # noqa: E402
 from stages import parse as parse_stage  # noqa: E402
+from stages import releases as releases_stage  # noqa: E402
 from stages import site as site_stage  # noqa: E402
 
 
@@ -44,6 +45,7 @@ _PATCH_DAY_FLAGS = (
     "should_export",
     "should_parse",
     "should_push_data",
+    "should_detect_releases",
     "should_build_site",
     "should_download_dependencies",
     "should_download_steam_game",
@@ -97,6 +99,7 @@ def main(args: argparse.Namespace) -> int:
     stages = [
         ("EXPORT", options.should_export, export_stage.run),
         ("PARSE", options.should_parse or options.should_push_data, parse_stage.run),
+        ("RELEASES", options.should_detect_releases, releases_stage.run),
         ("SITE", options.should_build_site, site_stage.run),
     ]
 

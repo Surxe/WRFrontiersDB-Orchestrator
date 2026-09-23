@@ -151,6 +151,18 @@ OPTIONS_SCHEMA = {
         "section": "Stages",
         "help": "Push the parsed data to the data repo (implies parse output exists).",
     },
+    "SHOULD_DETECT_RELEASES": {
+        "env": "SHOULD_DETECT_RELEASES",
+        "arg": "--should-detect-releases",
+        "type": bool,
+        "default": False,
+        "section": "Stages",
+        "help": "Diff the pushed data repo's VirtualBot roster against "
+                "curated/robot_release_dates.json to detect newly-released robots, "
+                "record them there (version id + manifest id + UTC patch time), and "
+                "commit/push that file. Reads the data repo, so it wants parse/push "
+                "to have run first.",
+    },
     "SHOULD_BUILD_SITE": {
         "env": "SHOULD_BUILD_SITE",
         "arg": "--should-build-site",
