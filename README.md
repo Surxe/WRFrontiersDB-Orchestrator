@@ -43,9 +43,11 @@ roster id the stage (`src/releases.py`) either:
 
 An auto-added entry carries only what the pipeline can source: `release_date` (the
 in-house version id), `manifest_id` (`data/steam-download/manifest.txt`), and
-`patch_released_at_utc` (Steam PICS `timeupdated`, used only when the public
-manifest GID matches the built one, else null). `release_context` and
-`source_article_ids` are left for the news-scraper / a human.
+`patch_released_at_utc` (the probe's state-file `timeupdated`, used only when its
+`last_gid` matches the built manifest, else null — offline only, no live Steam
+lookup). `release_context` and `source_article_ids` are left for the news-scraper /
+a human. A patch with no new robots is a no-op: nothing is written, committed, or
+errored.
 
 - **Publish:** the edit is committed + pushed to the data repo. The Parser's push
   reclones a fresh checkout each run, so an uncommitted local edit would be wiped

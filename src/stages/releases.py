@@ -8,9 +8,9 @@ with the fields the pipeline can source, and commits + pushes that one file.
 Sourceable fields:
   * release_date            <- the in-house version id (game_version / version.txt)
   * manifest_id             <- data/steam-download/manifest.txt (the built GID)
-  * patch_released_at_utc   <- Steam PICS `timeupdated`, but only when the public
-                               manifest GID matches the built one (probe state
-                               first, else a live anonymous query); else null.
+  * patch_released_at_utc   <- the probe's state file `timeupdated`, but only when
+                               its `last_gid` matches the built manifest; else null
+                               (no live Steam lookup — offline only).
 Article-derived fields (release_context, source_article_ids) are left for the
 news-scraper / a human.
 
@@ -35,29 +35,19 @@ def _read_manifest_id(repos: Repos) -> str | None:
         return None
 
 
-def _resolve_patch_utc(manifest_id: str | None, tee) -> str | None:
-    """UTC publish time for `manifest_id`, only if a source's GID matches it.
+def _resolve_patch_utc(manifest_id: str | None) -> str | None:
+    """UTC publish time for `manifest_id` from the probe's state file (offline).
 
-    Tries the probe's state file first (offline; written when the probe triggered
-    this run), then a live anonymous PICS query. Returns None (never a guess) if
-    neither confirms the same GID as the built manifest.
+    The probe records `last_gid` + `timeupdated` for the public build it detected.
+    We use its time only when that GID matches the manifest we actually built; no
+    live Steam lookup, so an unmatched or absent state simply yields None (never a
+    guess). Wiring the probe as the pipeline trigger is what keeps this populated.
     """
     if not manifest_id:
         return None
-
     state = probe.load_state(probe.DEFAULT_STATE)
     if state.get("last_gid") == manifest_id and state.get("timeupdated"):
         return releases.epoch_to_utc_iso(state["timeupdated"])
-
-    try:
-        pics = probe.query_pics(retries=2, delay=3)
-    except probe.ProbeError as exc:
-        tee(f"[releases] PICS lookup for patch time failed (non-fatal): {exc}")
-        return None
-    if pics.get("gid") == manifest_id:
-        return releases.epoch_to_utc_iso(pics.get("timeupdated"))
-    tee(f"[releases] public manifest {pics.get('gid')} != built {manifest_id}; "
-        "leaving patch_released_at_utc null (processing a non-current build?)")
     return None
 
 
@@ -72,7 +62,7 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
             fh.write(line + "\n")
 
     manifest_id = _read_manifest_id(repos)
-    patch_utc = _resolve_patch_utc(manifest_id, tee)
+    patch_utc = _resolve_patch_utc(manifest_id)
     tee(f"[releases] version={game_version} manifest_id={manifest_id} patch_utc={patch_utc}")
 
     try:
