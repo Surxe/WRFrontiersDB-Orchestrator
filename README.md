@@ -9,8 +9,8 @@ kept out of the repo (and out of `dev`'s reach).
 ## Pipeline
 
 ```
-preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ SITE
-             (Exporter)  (Parser)             (Astro build)
+preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ RELEASES ──▶ SITE
+             (Exporter)  (Parser)             (roster diff) (Astro build)
 ```
 
 | Stage | Repo | What it does |
@@ -18,7 +18,47 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ SITE
 | EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
+| RELEASES | (this repo) | Diff the pushed `VirtualBot.json` roster vs `curated/robot_release_dates.json` → record newly-released robots (commit + push) |
 | SITE | WRFrontiersDB-Site | `npm run build` against the updated data repo |
+
+### RELEASES — newly-released robot detection
+
+A robot is a `VirtualBot` in the published data iff its modules are used by a
+factory preset, and the studio only ships an obtainable robot with one — so a new
+id in `current/Objects/VirtualBot.json` **is** the release signal (no
+`ProductionStatus` check needed; the Parser gates on the preset, which agrees 1:1
+with `Ready` core modules).
+
+The **store is the dedup source**: the data repo's
+`curated/robot_release_dates.json` already lists every robot with
+`virtual_bot_ref = OBJID_VirtualBot::<slug>`. A roster id whose ref is already
+there is already recorded, so detection is a pure file comparison — **no git diff
+against the previous patch and no separate state file**. For each unrecorded
+roster id the stage (`src/releases.py`) either:
+
+- **backfills** the ref onto a pre-recorded entry whose `virtual_bot_ref` is null
+  (a robot the news-scraper logged before it hit the roster — e.g. Angler),
+  filling only still-null fields so hand-curated data is never overwritten; or
+- **appends** a new entry (Mechs -> `robots[]`, Titans -> `titans[]`).
+
+An auto-added entry carries only what the pipeline can source: `release_date` (the
+in-house version id), `manifest_id` (`data/steam-download/manifest.txt`), and
+`patch_released_at_utc` (the probe's state-file `timeupdated`, used only when its
+`last_gid` matches the built manifest, else null — offline only, no live Steam
+lookup). `release_context` and `source_article_ids` are left for the news-scraper /
+a human. A patch with no new robots is a no-op: nothing is written, committed, or
+errored.
+
+- **Publish:** the edit is committed + pushed to the data repo. The Parser's push
+  reclones a fresh checkout each run, so an uncommitted local edit would be wiped
+  — this push is the only git operation, and it is output, not comparison. It runs
+  only when `--should-push-data` is on and a PAT is present.
+- **Standalone:** `.venv/bin/python src/releases.py` (`--no-write` to detect only;
+  exit `20` = new robot, `0` = none, `1` = error).
+- **Rename guard:** the id is `slugify(<localized name>)`, so a rename is rare; if
+  a recorded ref's slug leaves the roster the same run a new id appears, the new
+  bot is flagged `suspected_rename` for a human to confirm (WRF does not retire
+  robots). Relic variants are distinct ids and are recorded as ordinary new robots.
 
 The SITE build resolves its styling from **WRFrontiersDB-Design**, the shared
 design system (tokens + self-hosted brand font) that both front-ends —
@@ -240,6 +280,10 @@ directly as dev works too (re-sourcing nvm is a no-op).
 * **SHOULD_PUSH_DATA** - Push the parsed data to the data repo (implies parse output exists).
   - Default: `"false"`
   - Command line: `--should-push-data`
+
+* **SHOULD_DETECT_RELEASES** - Diff the pushed data repo's VirtualBot roster against curated/robot_release_dates.json to detect newly-released robots, record them there (version id + manifest id + UTC patch time), and commit/push that file. Reads the data repo, so it wants parse/push to have run first.
+  - Default: `"false"`
+  - Command line: `--should-detect-releases`
 
 * **SHOULD_BUILD_SITE** - Build the Astro site (npm run build) against the updated data repo.
   - Default: `"false"`
