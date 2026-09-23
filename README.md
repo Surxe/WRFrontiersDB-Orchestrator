@@ -285,9 +285,13 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--should-detect-releases`
 
-* **SHOULD_BUILD_SITE** - Build the Astro site (npm run build) against the updated data repo.
+* **SHOULD_BUILD_SITE** - Build the Astro site (npm run build:slugs + npm run build) locally against the updated data repo. A pre-flight that catches build breaks before SHOULD_DEPLOY_SITE spends CI minutes; does not deploy.
   - Default: `"false"`
   - Command line: `--should-build-site`
+
+* **SHOULD_DEPLOY_SITE** - Deploy the site: dispatch WRFrontiersDB-Site's GitHub Pages workflow (pages.yaml) on its main branch via `gh workflow run`, so CI rebuilds and publishes against the freshly-pushed data. Fires immediately when on (no dry-run gate); needs `gh` authed with Actions-dispatch rights on Surxe/WRFrontiersDB-Site. Runs after SITE, so a local build break stops the pipeline before this dispatches.
+  - Default: `"false"`
+  - Command line: `--should-deploy-site`
 
 
 #### Exporter
