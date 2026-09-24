@@ -20,6 +20,8 @@ and SITE should still build), but it is logged loudly.
 
 from __future__ import annotations
 
+from loguru import logger
+
 import probe
 import releases
 from logging_stream import RunLogger
@@ -52,18 +54,14 @@ def _resolve_patch_utc(manifest_id: str | None) -> str | None:
 
 
 def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
-    log_path = runlog.stage_log_path("releases")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text("", encoding="utf-8")
+    with runlog.stage_sink("releases"):
+        return _run(options, repos, game_version)
 
-    def tee(line: str) -> None:
-        print(line, flush=True)
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
 
+def _run(options, repos: Repos, game_version: str) -> int:
     manifest_id = _read_manifest_id(repos)
     patch_utc = _resolve_patch_utc(manifest_id)
-    tee(f"[releases] version={game_version} manifest_id={manifest_id} patch_utc={patch_utc}")
+    logger.info(f"version={game_version} manifest_id={manifest_id} patch_utc={patch_utc}")
 
     try:
         result = releases.record_releases(
@@ -74,24 +72,26 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
             write=True,
         )
     except releases.ReleasesError as exc:
-        tee(f"[releases] recording failed (non-fatal): {exc}")
+        logger.error(f"recording failed (non-fatal): {exc}")
         return 0
 
     if result.orphaned_refs:
-        tee(f"[releases] WARNING recorded refs no longer in roster: {result.orphaned_refs} — "
-            "WRF does not retire robots; likely a slug rename. Verify.")
+        logger.warning(
+            f"recorded refs no longer in roster: {result.orphaned_refs} — "
+            "WRF does not retire robots; likely a slug rename. Verify."
+        )
     for b in result.backfilled:
-        tee(f"[releases] backfilled {b['name']} ({b['id']}): {b['filled']}")
+        logger.info(f"backfilled {b['name']} ({b['id']}): {b['filled']}")
 
     if not result.new_bots:
         if not result.changed:
-            tee("[releases] no new robots; curated file already lists the roster.")
+            logger.info("no new robots; curated file already lists the roster.")
             return 0
     else:
-        tee(f"[releases] NEW ROBOT(S) RELEASED in {game_version}"
-            + (" [SUSPECTED RENAME — verify]" if result.suspected_rename else ""))
+        logger.info(f"NEW ROBOT(S) RELEASED in {game_version}"
+                    + (" [SUSPECTED RENAME — verify]" if result.suspected_rename else ""))
         for b in result.new_bots:
-            tee(f"[releases]   - {b['name']} ({b['id']}, {b['character_type']})")
+            logger.info(f"  - {b['name']} ({b['id']}, {b['character_type']})")
 
     if not result.changed:
         return 0
@@ -99,8 +99,8 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
     # Publish the one file. The Parser's push reclones each run, so an uncommitted
     # edit would be discarded — this commit + push is the only git operation.
     if not (options.should_push_data and options.gh_data_repo_pat):
-        tee("[releases] curated file updated locally; not pushed "
-            "(push_data off or no PAT). It will be discarded on the next reclone.")
+        logger.info("curated file updated locally; not pushed "
+                    "(push_data off or no PAT). It will be discarded on the next reclone.")
         return 0
 
     n_new, n_fill = len(result.new_bots), len(result.backfilled)
@@ -117,9 +117,9 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
             repos.data_dir, pat=options.gh_data_repo_pat,
             branch=options.target_branch, message=message,
         )
-        tee(f"[releases] committed + pushed curated/robot_release_dates.json to "
-            f"{options.target_branch}.")
+        logger.info(f"committed + pushed curated/robot_release_dates.json to "
+                    f"{options.target_branch}.")
     except releases.ReleasesError as exc:
-        tee(f"[releases] push of curated file failed (non-fatal): {exc}")
+        logger.error(f"push of curated file failed (non-fatal): {exc}")
 
     return 0
