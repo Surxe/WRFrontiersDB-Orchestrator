@@ -50,6 +50,9 @@ class RunLogger:
         self.run_log = self.run_dir / "run.log"
         self.log_level = log_level
         self._n = 0
+        # (stage, path) for every per-step log handed out, in creation order.
+        # The run report scans these to count warnings/errors per step reached.
+        self.stage_logs: list[tuple[str, Path]] = []
         self._setup_logging()
 
     def _setup_logging(self) -> None:
@@ -63,7 +66,9 @@ class RunLogger:
 
     def _next_path(self, stage: str) -> Path:
         self._n += 1
-        return self.run_dir / f"{self._n:02d}-{stage}.log"
+        path = self.run_dir / f"{self._n:02d}-{stage}.log"
+        self.stage_logs.append((stage, path))
+        return path
 
     def banner(self, text: str) -> None:
         logger.info(f"\n{'=' * 70}\n{text}\n{'=' * 70}")
