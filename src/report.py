@@ -192,7 +192,12 @@ class RunReport:
                          "border-radius:4px;overflow-x:auto;white-space:pre-wrap'>"
                          f"{body}</pre>")
 
-        p.append("<h3 style='margin:12px 0 4px'>Logs</h3><ul style='margin:0'>")
+        p.append("<h3 style='margin:12px 0 4px'>Logs</h3>")
+        p.append("<p style='color:#666;font-size:12px;margin:0 0 4px'>Full paths on "
+                 "the pipeline host; webmail may show them as plain text — copy the "
+                 "path. Links open only on that host.</p>")
+        p.append("<ul style='margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;"
+                 "font-size:13px'>")
         p.append(f"<li>{_link(self._runlog.run_dir)}</li>")
         for _stage, path in self._runlog.stage_logs:
             p.append(f"<li>{_link(path)}</li>")
@@ -212,5 +217,7 @@ def _uri(path: Path) -> str:
 
 
 def _link(path: Path) -> str:
+    # Show the FULL file:// path as the visible text (copy-pasteable everywhere);
+    # keep the href for desktop clients that honour file:// (webmail strips it).
     uri = _uri(path)
-    return f'<a href="{html.escape(uri, quote=True)}">{html.escape(Path(path).name)}</a>'
+    return f'<a href="{html.escape(uri, quote=True)}">{html.escape(uri)}</a>'
