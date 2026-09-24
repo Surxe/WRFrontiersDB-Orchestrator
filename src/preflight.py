@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import re
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
+
+from loguru import logger
 
 from config import CANONICAL_SECRETS_PATH, missing_secrets
 from repos import Repos
@@ -49,7 +50,7 @@ def confirm_game_version(options, *, interactive: bool) -> str:
             )
         if not _DATE_RE.match(given):
             raise PreflightError(f"GAME_VERSION must be yyyy-mm-dd[-N], got: {given!r}")
-        print(f"[preflight] Manifest confirmation skipped; using GAME_VERSION={given}")
+        logger.info(f"Manifest confirmation skipped; using GAME_VERSION={given}")
         return given
 
     print()
@@ -79,7 +80,7 @@ def confirm_game_version(options, *, interactive: bool) -> str:
 
     if not _DATE_RE.match(chosen):
         raise PreflightError(f"Not a valid yyyy-mm-dd[-N] version: {chosen!r}")
-    print(f"[preflight] Using GAME_VERSION={chosen}")
+    logger.info(f"Using GAME_VERSION={chosen}")
     return chosen
 
 
@@ -146,4 +147,4 @@ def validate(options, repos: Repos, *, game_version: str) -> None:
         raise PreflightError(
             "Preflight failed:\n" + "\n".join(f"  - {e}" for e in errors)
         )
-    print("[preflight] OK")
+    logger.info("OK")

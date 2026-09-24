@@ -24,6 +24,7 @@ ROOT_DIR = SRC_DIR.parent
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
+from loguru import logger  # noqa: E402
 from optionsconfig import init_options, ArgumentWriter  # noqa: E402
 
 import config  # noqa: E402
@@ -87,15 +88,20 @@ def main(args: argparse.Namespace) -> int:
 
     repos = Repos(wrf_root=options.wrf_root, repos_dir=options.repos_dir)
 
-    interactive = sys.stdin.isatty()
-    try:
-        game_version = preflight.confirm_game_version(options, interactive=interactive)
-        preflight.validate(options, repos, game_version=game_version)
-    except preflight.PreflightError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
+    # Create the run's log dir + loguru sinks BEFORE preflight, so even a
+    # preflight abort (a missing secret/venv) is captured to a URI-referenceable
+    # file rather than vanishing to the console.
+    runlog = RunLogger(options.log_dir, options.log_level)
 
-    runlog = RunLogger(options.log_dir)
+    interactive = sys.stdin.isatty()
+    with runlog.stage_sink("preflight"):
+        try:
+            game_version = preflight.confirm_game_version(options, interactive=interactive)
+            preflight.validate(options, repos, game_version=game_version)
+        except preflight.PreflightError as exc:
+            logger.error(str(exc))
+            return 2
+
     runlog.banner(f"WRFrontiersDB-Orchestrator — patch {game_version}")
 
     stages = [
@@ -108,12 +114,12 @@ def main(args: argparse.Namespace) -> int:
 
     for name, enabled, fn in stages:
         if not enabled:
-            print(f"[{name}] skipped", flush=True)
+            logger.info(f"[{name}] skipped")
             continue
         runlog.banner(name)
         rc = fn(options, repos, game_version, runlog)
         if rc != 0:
-            runlog.banner(f"{name} FAILED (exit {rc}) — see its stage log")
+            logger.error(f"{name} FAILED (exit {rc}) — see its stage log")
             return 1
 
     runlog.banner("Pipeline complete")
