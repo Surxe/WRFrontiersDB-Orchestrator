@@ -76,10 +76,22 @@ Out of scope for now: the discount visualizer and the news-research snapshot
   derived in `src/repos.py`, so the Exporter's output and the Parser's input can
   never drift apart (they were literally different paths before this repo).
 - **Secrets never touch the repo — or `dev`.** See [Secrets](#secrets).
-- **Streamed, per-stage logs.** Each stage's child process is streamed live to
-  the console *and* teed to `LOG_DIR/<run-timestamp>/<NN-stage>.log`, with
-  children run under `PYTHONUNBUFFERED=1` so nothing is swallowed by block
-  buffering (the old "it pauses, only the .log has output" problem).
+- **Streamed, per-step logs.** Each subprocess stage is streamed live to the
+  console *and* teed to `LOG_DIR/<run-timestamp>/<NN-stage>.log`, with children
+  run under `PYTHONUNBUFFERED=1` so nothing is swallowed by block buffering (the
+  old "it pauses, only the .log has output" problem). The orchestrator's own
+  in-process steps (preflight, RELEASES, banners) log through loguru — to an
+  aggregate `run.log` and their own `NN-<step>.log` — so every step has a
+  URI-referenceable log with level-tagged lines.
+- **Run-report email.** After every run — success, stage failure, or preflight
+  abort — the orchestrator emails a report: per-step warning/error counts at the
+  top, then `file://` links to every log. Counts are exact for the loguru steps
+  (preflight/export/parse/releases) and a flagged text heuristic for the
+  npm/astro/gh SITE steps. Email is enabled only when `SMTP_USER`,
+  `SMTP_PASSWORD`, and `EMAIL_TO` are all set (see
+  [Email report](#email-report)); otherwise the report is just logged. These are
+  the orchestrator's own settings — independent of the Steam price tracker,
+  supplied via the non-checked-in secrets, no shared credential file.
 - **Manifest-date gate.** Before committing to a version string, preflight makes
   you eyeball the SteamDB manifest's release date against today — timezones can
   otherwise mislabel which calendar day a patch dropped.
@@ -244,6 +256,29 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Example: `"github_pat_XXXXXXXXXXXXXXXX"`
   - Default: None
   - Command line: `--gh-data-repo-pat`
+
+
+#### Email report
+
+* **SMTP_HOST** - SMTP server host used to send the run-report email.
+  - Default: `"smtp.gmail.com"`
+  - Command line: `--smtp-host`
+
+* **SMTP_PORT** - SMTP server port (587 = STARTTLS).
+  - Default: `"587"`
+  - Command line: `--smtp-port`
+
+* **SMTP_USER** - SMTP account to authenticate as, also the From address. For Gmail, pair it with a 16-char App Password in SMTP_PASSWORD. Email is enabled only when SMTP_USER, SMTP_PASSWORD, and EMAIL_TO are all set.
+  - Default: None
+  - Command line: `--smtp-user`
+
+* **SMTP_PASSWORD** - SMTP password (a Gmail App Password). Never committed; supplied via the orchestrator's non-checked-in secrets.
+  - Default: None
+  - Command line: `--smtp-password`
+
+* **EMAIL_TO** - Recipient address for the run-report email. Treated as a secret (a personal address): supplied via the non-checked-in secrets, never a committed file. Required for email.
+  - Default: None
+  - Command line: `--email-to`
 
 
 #### Patch

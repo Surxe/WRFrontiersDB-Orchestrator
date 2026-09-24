@@ -87,6 +87,62 @@ OPTIONS_SCHEMA = {
         "example": "github_pat_XXXXXXXXXXXXXXXX",
     },
 
+    # -------------------------------------------------------------- Email report
+    # After every run the orchestrator emails a report (per-step warning/error
+    # counts + file:// links to the logs). Email is enabled only when SMTP_USER,
+    # SMTP_PASSWORD, and EMAIL_TO are all set; absent any, the report is logged
+    # only. The three sensitive values are supplied by the orchestrator's
+    # non-checked-in secrets (never committed) — see secrets.env.example.
+    "SMTP_HOST": {
+        "env": "SMTP_HOST",
+        "arg": "--smtp-host",
+        "type": str,
+        "default": "smtp.gmail.com",
+        "section": "Email report",
+        "help": "SMTP server host used to send the run-report email.",
+    },
+    "SMTP_PORT": {
+        "env": "SMTP_PORT",
+        "arg": "--smtp-port",
+        "type": int,
+        "default": 587,
+        "section": "Email report",
+        "help": "SMTP server port (587 = STARTTLS).",
+    },
+    "SMTP_USER": {
+        "env": "SMTP_USER",
+        "arg": "--smtp-user",
+        "type": str,
+        "default": None,
+        "sensitive": True,
+        "section": "Email report",
+        "help": "SMTP account to authenticate as, also the From address. For "
+                "Gmail, pair it with a 16-char App Password in SMTP_PASSWORD. "
+                "Email is enabled only when SMTP_USER, SMTP_PASSWORD, and "
+                "EMAIL_TO are all set.",
+    },
+    "SMTP_PASSWORD": {
+        "env": "SMTP_PASSWORD",
+        "arg": "--smtp-password",
+        "type": str,
+        "default": None,
+        "sensitive": True,
+        "section": "Email report",
+        "help": "SMTP password (a Gmail App Password). Never committed; supplied "
+                "via the orchestrator's non-checked-in secrets.",
+    },
+    "EMAIL_TO": {
+        "env": "EMAIL_TO",
+        "arg": "--email-to",
+        "type": str,
+        "default": None,
+        "sensitive": True,
+        "section": "Email report",
+        "help": "Recipient address for the run-report email. Treated as a secret "
+                "(a personal address): supplied via the non-checked-in secrets, "
+                "never a committed file. Required for email.",
+    },
+
     # -------------------------------------------------------------------- Patch
     "GAME_VERSION": {
         "env": "GAME_VERSION",

@@ -27,9 +27,11 @@ sys.path.insert(0, str(SRC_DIR))
 from loguru import logger  # noqa: E402
 from optionsconfig import init_options, ArgumentWriter  # noqa: E402
 
+import alerts  # noqa: E402
 import config  # noqa: E402
 import preflight  # noqa: E402
 from logging_stream import RunLogger  # noqa: E402
+from report import RunReport  # noqa: E402
 from repos import Repos  # noqa: E402
 from stages import export as export_stage  # noqa: E402
 from stages import parse as parse_stage  # noqa: E402
@@ -92,7 +94,18 @@ def main(args: argparse.Namespace) -> int:
     # preflight abort (a missing secret/venv) is captured to a URI-referenceable
     # file rather than vanishing to the console.
     runlog = RunLogger(options.log_dir, options.log_level)
+    report = RunReport(runlog)
 
+    # Email the report on EVERY exit path (success, stage failure, preflight
+    # abort). The email is pure reporting after the run's decisions — hard stops
+    # still return their own codes below.
+    try:
+        return _run_pipeline(options, repos, runlog, report)
+    finally:
+        alerts.send_report(options, report)
+
+
+def _run_pipeline(options, repos: Repos, runlog: RunLogger, report: RunReport) -> int:
     interactive = sys.stdin.isatty()
     with runlog.stage_sink("preflight"):
         try:
@@ -100,8 +113,10 @@ def main(args: argparse.Namespace) -> int:
             preflight.validate(options, repos, game_version=game_version)
         except preflight.PreflightError as exc:
             logger.error(str(exc))
+            report.finalize("PREFLIGHT FAILED")
             return 2
 
+    report.game_version = game_version
     runlog.banner(f"WRFrontiersDB-Orchestrator — patch {game_version}")
 
     stages = [
@@ -120,9 +135,11 @@ def main(args: argparse.Namespace) -> int:
         rc = fn(options, repos, game_version, runlog)
         if rc != 0:
             logger.error(f"{name} FAILED (exit {rc}) — see its stage log")
+            report.finalize(f"FAILED at {name}")
             return 1
 
     runlog.banner("Pipeline complete")
+    report.finalize("COMPLETE")
     # Prune old patch versions (keep 2 most recent), keeping steam-download static.
     repos.prune_old_versions(keep=2)
     return 0
