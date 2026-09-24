@@ -21,7 +21,6 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
     mapper_file = repos.mapper_file(game_version)
 
     exports_dir = repos.exports_dir_for_version(game_version)
-    textures_dir = repos.textures_dir_for_version(game_version)
 
     cmd = [
         str(py), "src/run.py",
