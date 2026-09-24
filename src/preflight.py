@@ -110,8 +110,9 @@ def validate(options, repos: Repos, *, game_version: str) -> None:
             errors.append(f"Parser venv python missing: {py}")
         # parse needs exports present unless export runs first in this same run
         if options.should_parse and not options.should_export:
-            if not repos.exports_dir.is_dir():
-                errors.append(f"EXPORT dir missing (run export first?): {repos.exports_dir}")
+            exports_dir = repos.exports_dir_for_version(game_version)
+            if not exports_dir.is_dir():
+                errors.append(f"EXPORT dir missing (run export first?): {exports_dir}")
 
     if options.should_push_data:
         for k in missing_secrets(("GH_DATA_REPO_PAT",)):
