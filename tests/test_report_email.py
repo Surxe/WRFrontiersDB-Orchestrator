@@ -114,10 +114,10 @@ class ReportCountTests(unittest.TestCase):
         })
         cmd = rep.hs_command()
         self.assertTrue(cmd.startswith("hs 'cd "))
-        self.assertIn("ls -lh 01-preflight.log 02-parse.log run.log", cmd)
-        self.assertIn(cmd, rep.body())          # in the plain body (verbatim)
-        # HTML escapes the quotes; the file list is quote-free, so check that part.
-        self.assertIn("ls -lh 01-preflight.log 02-parse.log run.log", rep.body_html())
+        self.assertTrue(cmd.endswith("&& ls -lh'"))  # per-run dir => plain ls
+        self.assertNotIn("\n", cmd)                   # single line (no wrap risk)
+        self.assertIn(cmd, rep.body())                # in the plain body (verbatim)
+        self.assertIn("&amp;&amp; ls -lh", rep.body_html())  # HTML-escaped, present
 
     def test_lines_are_capped(self):
         many = "".join(f"ERROR | parse:y:{i} - e{i}\n" for i in range(40))

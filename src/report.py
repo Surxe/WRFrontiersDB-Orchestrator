@@ -110,13 +110,11 @@ class RunReport:
         """A copy-paste command to reach this run's logs on the home-server.
 
         `hs` (dev's shell function) SSHes to the box and runs the command, then
-        drops into an interactive shell in the log dir. Lists just this run's
-        files, not the whole (unpruned) log tree.
+        drops into an interactive shell in the log dir. Each run gets its own dir,
+        which holds ONLY this run's files, so a plain `ls -lh` there lists exactly
+        the relevant logs — and keeps the command short enough not to line-wrap.
         """
-        names = [p.name for _stage, p in self._runlog.stage_logs]
-        names.append(Path(self._runlog.run_log).name)
-        files = " ".join(names)
-        return f"hs 'cd {self._runlog.run_dir} && ls -lh {files}'"
+        return f"hs 'cd {self._runlog.run_dir} && ls -lh'"
 
     def subject(self) -> str:
         version = self.game_version or "unknown"
@@ -207,8 +205,10 @@ class RunReport:
                          f"{body}</pre>")
 
         p.append("<h3 style='margin:12px 0 4px'>Open the logs on the home-server</h3>")
+        # white-space:pre (not pre-wrap): keep the command on one line so a copy
+        # never picks up a soft-wrap newline; scroll horizontally if it's long.
         p.append("<pre style='margin:0 0 8px;padding:8px;background:#f4f4f4;"
-                 "border-radius:4px;overflow-x:auto;white-space:pre-wrap'>"
+                 "border-radius:4px;overflow-x:auto;white-space:pre'>"
                  f"{html.escape(self.hs_command())}</pre>")
 
         p.append("<h3 style='margin:12px 0 4px'>Logs</h3>")
