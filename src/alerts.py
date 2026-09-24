@@ -91,7 +91,10 @@ class EmailAlerter:
         message["Subject"] = report.subject()
         message["From"] = self.config.user
         message["To"] = self.config.to_addr
+        # Plain text is the fallback; the HTML alternative hyperlinks the file://
+        # log links (plain-text clients don't auto-link file:// URIs).
         message.set_content(report.body())
+        message.add_alternative(report.body_html(), subtype="html")
         return message
 
     def _deliver(self, message: EmailMessage) -> None:

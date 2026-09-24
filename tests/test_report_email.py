@@ -69,6 +69,9 @@ class ReportCountTests(unittest.TestCase):
         self.assertEqual((counts["parse"].warnings, counts["parse"].errors), (2, 2))
         self.assertFalse(counts["parse"].approx)
         self.assertEqual(rep.totals(), (2, 2))
+        # The actual warning/error lines are captured inline (self-contained email).
+        self.assertEqual(len(counts["parse"].lines), 4)
+        self.assertTrue(any("boom" in ln for ln in counts["parse"].lines))
 
     def test_site_counts_are_heuristic(self):
         rep = self._report({
@@ -85,15 +88,33 @@ class ReportCountTests(unittest.TestCase):
         self.assertGreaterEqual(c.warnings, 1)
         self.assertGreaterEqual(c.errors, 1)
 
-    def test_body_has_uris_and_result(self):
+    def test_body_has_uris_result_and_inline_lines(self):
         rep = self._report({"02-parse.log": "ERROR | parse:y:1 - boom\n"})
         rep.finalize("FAILED at PARSE")
         body = rep.body()
         self.assertIn("FAILED at PARSE", body)
         self.assertIn("file://", body)
         self.assertIn("02-parse.log", body)
+        self.assertIn("boom", body)  # the actual error line is inline
         self.assertIn("FAILED at PARSE", rep.subject())
         self.assertIn("1 errors", rep.subject())
+
+    def test_html_hyperlinks_and_escapes(self):
+        rep = self._report({"02-parse.log": "ERROR | parse:y:1 - bad <x> & y\n"})
+        rep.finalize("COMPLETE")
+        html = rep.body_html()
+        self.assertIn('<a href="file://', html)          # links are hyperlinked
+        self.assertIn("02-parse.log</a>", html)
+        self.assertIn("bad &lt;x&gt; &amp; y", html)      # message text is escaped
+
+    def test_lines_are_capped(self):
+        many = "".join(f"ERROR | parse:y:{i} - e{i}\n" for i in range(40))
+        rep = self._report({"02-parse.log": many})
+        c = rep.counts()[0]
+        self.assertEqual(c.errors, 40)          # count is exact
+        self.assertEqual(len(c.lines), 25)      # inline lines are capped
+        self.assertTrue(c.truncated)
+        self.assertIn("showing first 25", rep.body())
 
 
 class EmailConfigTests(unittest.TestCase):
@@ -166,6 +187,11 @@ class EmailAlerterTests(unittest.TestCase):
         self.assertEqual(sent.sent["From"], "from@x.com")
         self.assertEqual(sent.sent["To"], "to@y.com")
         self.assertIn("COMPLETE", sent.sent["Subject"])
+        # multipart/alternative: a plain text part and a hyperlinked HTML part.
+        msg = sent.sent
+        self.assertEqual(msg.get_content_type(), "multipart/alternative")
+        html_part = msg.get_body(preferencelist=("html",)).get_content()
+        self.assertIn('<a href="file://', html_part)
 
     def test_smtp_error_is_caught(self):
         def boom(host, port):
