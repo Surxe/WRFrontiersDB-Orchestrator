@@ -106,6 +106,18 @@ class RunReport:
         counts = self.counts()
         return sum(c.warnings for c in counts), sum(c.errors for c in counts)
 
+    def hs_command(self) -> str:
+        """A copy-paste command to reach this run's logs on the home-server.
+
+        `hs` (dev's shell function) SSHes to the box and runs the command, then
+        drops into an interactive shell in the log dir. Lists just this run's
+        files, not the whole (unpruned) log tree.
+        """
+        names = [p.name for _stage, p in self._runlog.stage_logs]
+        names.append(Path(self._runlog.run_log).name)
+        files = " ".join(names)
+        return f"hs 'cd {self._runlog.run_dir} && ls -lh {files}'"
+
     def subject(self) -> str:
         version = self.game_version or "unknown"
         warns, errs = self.totals()
@@ -142,6 +154,8 @@ class RunReport:
                 out += [f"    {ln}" for ln in c.lines]
                 if c.truncated:
                     out.append(f"    ... (more in the log; showing first {_MAX_LINES})")
+
+        out += ["", "Open the logs on the home-server:", f"  {self.hs_command()}"]
 
         out += ["", "Logs:", f"  {_uri(self._runlog.run_dir)}"]
         for _stage, path in self._runlog.stage_logs:
@@ -191,6 +205,11 @@ class RunReport:
                 p.append("<pre style='margin:0;padding:8px;background:#f4f4f4;"
                          "border-radius:4px;overflow-x:auto;white-space:pre-wrap'>"
                          f"{body}</pre>")
+
+        p.append("<h3 style='margin:12px 0 4px'>Open the logs on the home-server</h3>")
+        p.append("<pre style='margin:0 0 8px;padding:8px;background:#f4f4f4;"
+                 "border-radius:4px;overflow-x:auto;white-space:pre-wrap'>"
+                 f"{html.escape(self.hs_command())}</pre>")
 
         p.append("<h3 style='margin:12px 0 4px'>Logs</h3>")
         p.append("<ul style='margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;"

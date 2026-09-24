@@ -107,6 +107,18 @@ class ReportCountTests(unittest.TestCase):
         self.assertIn("02-parse.log</a>", html)
         self.assertIn("bad &lt;x&gt; &amp; y", html)      # message text is escaped
 
+    def test_hs_command_lists_this_runs_logs(self):
+        rep = self._report({
+            "01-preflight.log": "INFO | preflight:validate:1 - OK\n",
+            "02-parse.log": "ERROR | parse:y:1 - boom\n",
+        })
+        cmd = rep.hs_command()
+        self.assertTrue(cmd.startswith("hs 'cd "))
+        self.assertIn("ls -lh 01-preflight.log 02-parse.log run.log", cmd)
+        self.assertIn(cmd, rep.body())          # in the plain body (verbatim)
+        # HTML escapes the quotes; the file list is quote-free, so check that part.
+        self.assertIn("ls -lh 01-preflight.log 02-parse.log run.log", rep.body_html())
+
     def test_lines_are_capped(self):
         many = "".join(f"ERROR | parse:y:{i} - e{i}\n" for i in range(40))
         rep = self._report({"02-parse.log": many})
