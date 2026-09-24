@@ -193,9 +193,6 @@ class RunReport:
                          f"{body}</pre>")
 
         p.append("<h3 style='margin:12px 0 4px'>Logs</h3>")
-        p.append("<p style='color:#666;font-size:12px;margin:0 0 4px'>Full paths on "
-                 "the pipeline host; webmail may show them as plain text — copy the "
-                 "path. Links open only on that host.</p>")
         p.append("<ul style='margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;"
                  "font-size:13px'>")
         p.append(f"<li>{_link(self._runlog.run_dir)}</li>")
