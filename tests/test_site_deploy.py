@@ -2,7 +2,8 @@
 
 No external processes run: `run_streamed` is stubbed with a recorder, so npm and
 `gh` are never invoked (e2e is exercised separately). These cover the wiring:
-  * site.run runs `build:slugs` before `build`, and short-circuits if slugs fail;
+  * site.run runs `npm ci` before `build:slugs` before `build`, and
+    short-circuits if install or slugs fail;
   * site_deploy.run dispatches the right `gh workflow run` command;
   * run.main sequences SITE-DEPLOY after SITE and skips it when a build breaks;
   * --patch-day enables the deploy;
@@ -61,21 +62,29 @@ class Recorder:
 
 
 class SiteStageUnitTests(unittest.TestCase):
-    def test_runs_slugs_before_build(self):
+    def test_installs_before_slugs_before_build(self):
         rec = Recorder()
         with mock.patch.object(site_stage, "run_streamed", rec):
             rc = site_stage.run(SimpleNamespace(), _fake_repos(), "2026-08-22", _fake_runlog())
         self.assertEqual(rc, 0)
-        self.assertEqual(rec.stages, ["site-slugs", "site"])
-        self.assertEqual(rec.calls[0][1], ["npm", "run", "build:slugs"])
-        self.assertEqual(rec.calls[1][1], ["npm", "run", "build"])
+        self.assertEqual(rec.stages, ["site-install", "site-slugs", "site"])
+        self.assertEqual(rec.calls[0][1], ["npm", "ci"])
+        self.assertEqual(rec.calls[1][1], ["npm", "run", "build:slugs"])
+        self.assertEqual(rec.calls[2][1], ["npm", "run", "build"])
+
+    def test_slugs_and_build_skipped_when_install_fails(self):
+        rec = Recorder(rc_by_stage={"site-install": 1})
+        with mock.patch.object(site_stage, "run_streamed", rec):
+            rc = site_stage.run(SimpleNamespace(), _fake_repos(), "2026-08-22", _fake_runlog())
+        self.assertEqual(rc, 1)
+        self.assertEqual(rec.stages, ["site-install"])  # slugs/build never attempted
 
     def test_build_skipped_when_slugs_fail(self):
         rec = Recorder(rc_by_stage={"site-slugs": 3})
         with mock.patch.object(site_stage, "run_streamed", rec):
             rc = site_stage.run(SimpleNamespace(), _fake_repos(), "2026-08-22", _fake_runlog())
         self.assertEqual(rc, 3)
-        self.assertEqual(rec.stages, ["site-slugs"])  # build never attempted
+        self.assertEqual(rec.stages, ["site-install", "site-slugs"])  # build never attempted
 
 
 class SiteDeployUnitTests(unittest.TestCase):
@@ -102,7 +111,7 @@ class RunWiringTests(unittest.TestCase):
 
     def test_deploy_runs_after_site_on_happy_path(self):
         rec = self._drive(["--should-build-site", "true", "--should-deploy-site", "true"])
-        self.assertEqual(rec.stages, ["site-slugs", "site", "site-deploy"])
+        self.assertEqual(rec.stages, ["site-install", "site-slugs", "site", "site-deploy"])
 
     def test_build_break_stops_before_deploy(self):
         rec = self._drive(
