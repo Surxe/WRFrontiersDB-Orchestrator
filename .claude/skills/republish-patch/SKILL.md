@@ -16,7 +16,7 @@ Paths:
 - Parser dev worktree: `/srv/dev/repos/WRFrontiersDB-Parser-dev`
 - Other pipeline clones: `/srv/dev/repos/{WRFrontiersDB-Orchestrator,WRFrontiers-Exporter,WRFrontiersDB-Site}`
 
-## 1. Gates (stop on any failure and tell Ethan)
+## 1. Gates (stop on any failure and tell the user)
 
 ```bash
 V=<version>
@@ -28,10 +28,10 @@ git -C $P status --porcelain; git -C $P rev-parse --abbrev-ref HEAD
 ```
 
 - No merged PR for `patch/$V` -> STOP. If the fix went in under another branch
-  name, ask Ethan for the PR and check that it's merged instead.
+  name, ask the user for the PR and check that it's merged instead.
 - An orchestrator run is active -> STOP. Don't stack runs.
 - Pipeline Parser clone not on `main`, or dirty -> STOP. Don't clean it yourself;
-  something edited the pipeline clone and Ethan needs to know.
+  something edited the pipeline clone and the user needs to know.
 
 ## 2. Update the pipeline
 
@@ -40,7 +40,7 @@ git -C $P pull --ff-only
 $P/.venv/bin/pip install -q -r $P/requirements.txt
 ```
 
-`pip install` every time: a new requirement (like `zstandard` for #113) otherwise
+`pip install` every time: a new requirement (like `zstandard` for the model parser) otherwise
 silently degrades the pipeline's output. Then check the other pipeline clones:
 
 ```bash
@@ -50,7 +50,7 @@ for r in WRFrontiersDB-Orchestrator WRFrontiers-Exporter WRFrontiersDB-Site; do
 done
 ```
 
-Those repos are developed on the home PC, so pulling them deploys Ethan's merged
+Those repos are developed on the home PC, so pulling them deploys the user's merged
 work. If any is behind or off `main`, list them and **ask** whether to
 fast-forward them before the run; don't decide for him. For the Orchestrator,
 a pull also needs `.venv/bin/pip install -q -r requirements.txt`. The SITE stage
@@ -72,7 +72,7 @@ Leave `/srv/dev/wrf/dev` alone; the next `tools/patch_day.sh init` resets it.
 
 ## 4. Run
 
-Invoking this skill is Ethan's go-ahead to publish; no extra confirmation is
+Invoking this skill is the user's go-ahead to publish; no extra confirmation is
 needed unless step 2 raised a question.
 
 ```bash
@@ -90,12 +90,12 @@ systemctl show "wrf-orchestrator@$V" -p Result -p ExecMainStatus
 RUN=$(ls -d /srv/dev/wrf/logs/*/ | sort | tail -1)
 tail -n 15 "$RUN/run.log"
 $P/.venv/bin/python $P/tools/warning_report.py "$RUN" --summary
-$P/.venv/bin/python $P/tools/warning_report.py "$RUN" | grep '^### '
+$P/.venv/bin/python $P/tools/warning_report.py "$RUN" --stdout | grep '^### '
 ```
 
 ## 5. Report
 
-Tell Ethan: the run result (COMPLETE / FAILED at <stage>), the parse group count
+Tell the user: the run result (COMPLETE / FAILED at <stage>), the parse group count
 before -> after, and any group still left (expected: only the ones deferred at
 Gate 1). A failed stage after PARSE means the data was pushed but the site wasn't
 rebuilt; point at that stage's log. The run-report email goes out on its own.

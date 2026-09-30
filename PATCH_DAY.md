@@ -77,7 +77,12 @@ The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
    pipeline's parsed output.
 2. Group the pipeline's parse log with `tools/warning_report.py`, in the
    order **error -> warning -> unknown-property**. Plain `warning`s are the
-   likely regressions: an existing parser check tripped on changed data.
+   likely regressions: an existing parser check tripped on changed data. The
+   report is written to `reports/latest.md` in the dev worktree (gitignored).
+   Open it and press `Ctrl+Shift+V` for the preview. It has a summary table, and
+   each group links to the owning parser line and the export JSON, which open in
+   the editor, plus the asset viewer. Leave the preview open: every scratch
+   parse rewrites the file and the preview refreshes.
 3. Do a sanity scratch parse with no edits. The review diff should be empty.
    If it isn't, the pipeline's environment differs from the dev worktree's (see
    [Troubleshooting](#troubleshooting)).
@@ -85,7 +90,7 @@ The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
 
 **Gate 1 - you decide.** Claude stops with a table: per group, the evidence and a
 proposal (`value`, `parse via <fn>`, `skip #reason`, `fix logic`,
-`elevate to error`, `needs Ethan`). Approve, change rows, or defer some. The
+`elevate to error`, `needs user`). Approve, change rows, or defer some. The
 parse-vs-skip conventions are in the Parser's `CLAUDE.md` (*Key maps: parse or
 skip*). The log-level rules are in its `STANDARDS.md` (*Choosing a Log Level*):
 anything that silently drops published data should be `logger.error`, not a
@@ -98,6 +103,7 @@ line or `/Game/...` path into the viewer to follow references.
 ## 5. Review the output diff
 
 Claude implements the approved rows, then iterates `tools/patch_day.sh parse`
+(which also rewrites `reports/latest.md`)
 (scratch parse into `/srv/dev/wrf/dev/parsed`, synced into the review repo)
 until those groups are gone and nothing NEW appeared.
 
@@ -113,8 +119,8 @@ total change vs. baseline.
 
 ## 6. PR and merge
 
-Claude commits to `patch/<version>` and opens the PR with the `pr` skill (body in
-the style of Parser #112: properties handled, skipped + why, fixes, open items,
+Claude commits to `patch/<version>` and opens the PR with the `pr` skill (body
+covering: properties handled, skipped + why, fixes, open items,
 verification). Review and merge it on GitHub as usual.
 
 **Don't run `/merged` for a parser patch PR.** It would try to check out `main` in
@@ -157,9 +163,9 @@ Everything the skill does is plain tooling in the Parser dev worktree:
 cd /srv/dev/repos/WRFrontiersDB-Parser-dev
 git fetch origin && git switch -c patch/2026-09-29 origin/main
 tools/patch_day.sh init 2026-09-29
-.venv/bin/python tools/warning_report.py              # group the latest pipeline run's parse log
-tools/patch_day.sh parse                              # after each edit: scratch parse + diff + summary
-tools/patch_day.sh report                             # grouped warnings of the scratch parse
+.venv/bin/python tools/warning_report.py              # group the latest pipeline run's parse log -> reports/latest.md
+tools/patch_day.sh parse                              # after each edit: scratch parse + diff + reports/latest.md
+tools/patch_day.sh report                             # re-write the scratch parse's report
 tools/patch_day.sh checkpoint "handled TeslaFeed"     # accept the current diff
 tools/patch_day.sh viewer                             # asset viewer on :8765
 ```
@@ -178,7 +184,7 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
 
 - **Sanity scratch parse shows a diff with no parser edits.** The pipeline ran
   with a different environment than the dev worktree. On 2026-09-29 the pipeline
-  Parser venv lacked `zstandard` (added to `requirements.txt` by #113), so every
+  Parser venv lacked `zstandard` (a newly added requirement), so every
   model's `meshes` came out empty. The only trace was 370 DEBUG lines. Fix with
   `pip install -r requirements.txt` in the pipeline clone's venv (republish does
   this), then republish.
