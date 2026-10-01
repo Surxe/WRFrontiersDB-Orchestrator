@@ -86,12 +86,27 @@ The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
 3. Do a sanity scratch parse with no edits. The review diff should be empty.
    If it isn't, the pipeline's environment differs from the dev worktree's (see
    [Troubleshooting](#troubleshooting)).
-4. Read the export slice behind each group and propose a decision per group.
+4. Read the export slice behind each group and write a proposal for each one
+   into the decisions file (below).
 
-**Gate 1 - you decide.** Claude stops with a table: per group, the evidence and a
-proposal (`value`, `parse via <fn>`, `skip #reason`, `fix logic`,
-`elevate to error`, `needs user`). Approve, change rows, or defer some. The
-parse-vs-skip conventions are in the Parser's `CLAUDE.md` (*Key maps: parse or
+**Decisions file.** The report keeps `decisions/<version>.json` in the dev
+worktree in sync with the log. The file is **gitignored and local only**, so
+back it up yourself if you want it kept. Every group has a stable id
+(`u-`/`w-`/`e-` + 8 hex, shown in the report) and one entry with `status`,
+`proposal`, `reason`, `confidence`, `notes`. New groups arrive as `undecided`.
+Claude moves them to `proposed`, and you set `approved` or `deferred`. The
+script itself marks `approved` -> `done` once a newer completed parse no longer
+produces the group, and back to `approved` (with a note) if it reappears. A
+decision made for the same id in an earlier patch shows as "previously". The
+report renders status and proposal for every group, plus a *Not in this log*
+table, so `reports/latest.md` also tracks the patch's progress.
+
+**Gate 1 - you decide.** Claude stops once its proposals are in the file and the
+report shows them (`value`, `parse via <fn>`, `skip #reason`, `fix logic`,
+`elevate to error`, `needs user`). Review them in the preview, then set
+`status` to `approved` or `deferred` in the JSON, rewriting `proposal` if you
+disagree, or tell Claude in chat and it sets them. Claude implements only
+`approved` entries. The parse-vs-skip conventions are in the Parser's `CLAUDE.md` (*Key maps: parse or
 skip*). The log-level rules are in its `STANDARDS.md` (*Choosing a Log Level*):
 anything that silently drops published data should be `logger.error`, not a
 warning.
@@ -144,7 +159,10 @@ the dev worktree at `origin/main` (deleting the patch branch), and re-runs
 or re-exported, because without `--force-*` those steps skip output that
 already exists. The run re-parses, re-pushes `current/`, re-runs RELEASES
 (idempotent) and rebuilds/deploys the site. It then groups the new run's parse
-log so you can see the approved groups are gone. You also get the usual email.
+log against the dev worktree's `decisions/<version>.json`. That run is the
+newest completed parse, so groups it no longer produces are confirmed `done`, and
+the report shows what's left (normally just the deferred ones). You also get
+the usual email.
 
 By hand:
 
@@ -164,6 +182,7 @@ cd /srv/dev/repos/WRFrontiersDB-Parser-dev
 git fetch origin && git switch -c patch/2026-09-29 origin/main
 tools/patch_day.sh init 2026-09-29
 .venv/bin/python tools/warning_report.py              # group the latest pipeline run's parse log -> reports/latest.md
+                                                      #   + decisions/2026-09-29.json (edit status/proposal there)
 tools/patch_day.sh parse                              # after each edit: scratch parse + diff + reports/latest.md
 tools/patch_day.sh report                             # re-write the scratch parse's report
 tools/patch_day.sh checkpoint "handled TeslaFeed"     # accept the current diff
@@ -179,6 +198,9 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
   checked out.
 - Scratch parses never push. Publishing is the pipeline's job.
 - `tools/patch_day.sh init` resets the review repo. Re-run it only for a new version.
+- `decisions/` never goes to the remote (gitignored). It's the only record of
+  deferred items between patches, so include the dev worktree's `decisions/` in
+  your own backups.
 
 ## Troubleshooting
 

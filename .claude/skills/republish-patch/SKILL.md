@@ -90,12 +90,21 @@ systemctl show "wrf-orchestrator@$V" -p Result -p ExecMainStatus
 RUN=$(ls -d /srv/dev/wrf/logs/*/ | sort | tail -1)
 tail -n 15 "$RUN/run.log"
 $P/.venv/bin/python $P/tools/warning_report.py "$RUN" --summary
-$P/.venv/bin/python $P/tools/warning_report.py "$RUN" --stdout | grep '^### '
+$P/.venv/bin/python $P/tools/warning_report.py "$RUN" --stdout \
+    --decisions "$W/decisions/$V.json" | grep -E '^(### |- decision:|\| `)'
 ```
+
+Passing `--decisions` points the report at the dev worktree's local decisions file
+(gitignored there; never copy it into the pipeline clone). The republished run is
+the newest completed parse, so the script marks every `approved` group it no
+longer produces as `done`. If one is still present, it stays `approved`: the fix
+didn't take. If `$W/decisions/$V.json` doesn't exist (the triage was done without
+the file), drop the flag.
 
 ## 5. Report
 
 Tell the user: the run result (COMPLETE / FAILED at <stage>), the parse group count
-before -> after, and any group still left (expected: only the ones deferred at
-Gate 1). A failed stage after PARSE means the data was pushed but the site wasn't
+before -> after, the decision statuses (how many `done`, and any `approved` group
+that is still present), and any group still left (expected: only the `deferred`
+ones). A failed stage after PARSE means the data was pushed but the site wasn't
 rebuilt; point at that stage's log. The run-report email goes out on its own.
