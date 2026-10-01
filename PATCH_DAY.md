@@ -128,15 +128,22 @@ side-by-side diff of what the parser change did to the published JSON since the
 last checkpoint. `Objects/*.json` are pretty-printed. `Models/*.json` are
 one-line, so use `git -C /srv/dev/wrf/dev/parsed-review diff --word-diff -- Models/<file>`
 or ask Claude to summarise them. When you're happy, say so. Claude runs
-`tools/patch_day.sh checkpoint "<msg>"`, so the next iteration's diff shows
-only the new changes. `tools/patch_day.sh status` shows the checkpoints and the
-total change vs. baseline.
+`tools/patch_day.sh checkpoint "<msg>"`, which accepts the step on both sides:
+it commits the parser code (`src/`, `tests/`) on `patch/<version>` and the
+review repo with the same message, links them by hash, and lists the decision
+ids that became `done` (also stamped into the decisions file as `checkpoint` /
+`commit`). It refuses code on another branch, or code edited after the last
+scratch parse. The next iteration's diff then shows only the new changes.
+`tools/patch_day.sh status` shows the checkpoints and the total change vs.
+baseline.
 
 ## 6. PR and merge
 
-Claude commits to `patch/<version>` and opens the PR with the `pr` skill (body
-covering: properties handled, skipped + why, fixes, open items,
-verification). Review and merge it on GitHub as usual.
+The code is already on `patch/<version>`, one commit per checkpoint, so the PR
+can be reviewed step by step. Claude opens it with the `pr` skill (body built
+from the decisions file: properties handled, skipped + why, fixes, open items,
+verification). Review and merge it on GitHub as usual (squash or not is your
+call).
 
 **Don't run `/merged` for a parser patch PR.** It would try to check out `main` in
 the dev worktree, and `main` is held by the pipeline's clone. `/republish-patch`
@@ -185,7 +192,7 @@ tools/patch_day.sh init 2026-09-29
                                                       #   + decisions/2026-09-29.json (edit status/proposal there)
 tools/patch_day.sh parse                              # after each edit: scratch parse + diff + reports/latest.md
 tools/patch_day.sh report                             # re-write the scratch parse's report
-tools/patch_day.sh checkpoint "handled TeslaFeed"     # accept the current diff
+tools/patch_day.sh checkpoint "handled TeslaFeed"     # accept the step: commit code + review diff, linked
 tools/patch_day.sh viewer                             # asset viewer on :8765
 ```
 
