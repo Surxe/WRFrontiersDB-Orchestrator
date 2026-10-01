@@ -87,7 +87,7 @@ class SiteDeployUnitTests(unittest.TestCase):
         self.assertEqual(rec.stages, ["site-deploy"])
         self.assertEqual(
             rec.calls[0][1],
-            ["gh", "workflow", "run", "pages.yaml", "-R",
+            ["gh", "workflow", "run", "ci.yaml", "-R",
              "Surxe/WRFrontiersDB-Site", "--ref", "main"],
         )
 

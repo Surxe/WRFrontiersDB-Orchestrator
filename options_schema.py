@@ -237,8 +237,8 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": False,
         "section": "Stages",
-        "help": "Deploy the site: dispatch WRFrontiersDB-Site's GitHub Pages workflow "
-                "(pages.yaml) on its main branch via `gh workflow run`, so CI rebuilds "
+        "help": "Deploy the site: dispatch WRFrontiersDB-Site's CI workflow "
+                "(ci.yaml, which deploys Pages) on its main branch via `gh workflow run`, so CI rebuilds "
                 "and publishes against the freshly-pushed data. Fires immediately when "
                 "on (no dry-run gate); needs `gh` authed with Actions-dispatch rights "
                 "on Surxe/WRFrontiersDB-Site. Runs after SITE, so a local build break "

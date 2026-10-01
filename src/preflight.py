@@ -131,7 +131,7 @@ def validate(options, repos: Repos, *, game_version: str) -> None:
         # (auth/permission problems still only surface at dispatch time).
         if shutil.which("gh") is None:
             errors.append("SHOULD_DEPLOY_SITE needs the `gh` CLI on PATH to dispatch "
-                          "the Site Pages workflow, but it was not found.")
+                          "the Site CI workflow, but it was not found.")
 
     # BatchExport needs a mapper; if we won't generate one, it must already exist.
     if options.should_export and options.should_batch_export and not options.should_get_mapper:

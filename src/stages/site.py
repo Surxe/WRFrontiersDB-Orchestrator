@@ -8,7 +8,7 @@ so we run `build:slugs` first — exactly what CI does. The generated slug outpu
 is a build artifact and is not committed (CI regenerates it too).
 
 This is a local pre-flight: a passing build here is the gate before SITE-DEPLOY
-dispatches the Pages workflow, so a build break stops the pipeline cheaply.
+dispatches the Site CI (Pages deploy) workflow, so a build break stops the pipeline cheaply.
 """
 
 from __future__ import annotations
