@@ -76,17 +76,34 @@ Invoking this skill is the user's go-ahead to publish; no extra confirmation is
 needed unless step 2 raised a question.
 
 ```bash
-sudo systemctl start --no-block "wrf-orchestrator@$V.service"
+U="wrf-orchestrator@$V.service"
+BEFORE=$(systemctl show "$U" -p InvocationID --value)   # empty if it never ran
+sudo systemctl start --no-block "$U"
 ```
 
 The unit runs `--patch-day` without `--force-*`, so download, mapper and
 BatchExport skip their existing output. What actually runs is parse -> push ->
-releases -> site -> deploy. Wait for it without a sleep loop: a
-background `until ! systemctl is-active --quiet "wrf-orchestrator@$V"; do sleep 15; done`
-(or the Monitor tool), then:
+releases -> site -> deploy.
+
+Wait for **this** run to finish, in a background Bash call (or the Monitor tool),
+not a foreground sleep loop:
 
 ```bash
-systemctl show "wrf-orchestrator@$V" -p Result -p ExecMainStatus
+n=0; until [ "$(systemctl show "$U" -p InvocationID --value)" != "$BEFORE" ]; do
+  n=$((n+1)); [ $n -gt 24 ] && { echo "STOP: run never started"; exit 1; }; sleep 5; done
+while [ "$(systemctl show "$U" -p ActiveState --value)" = activating ]; do sleep 15; done
+```
+
+Don't use `systemctl is-active`: the unit is `Type=oneshot`, so it stays
+`activating` for the whole run, `is-active` reports that as not-active, and an
+`until ! is-active` loop exits at once. `Result` then still describes the
+*previous* run, so a run in progress looks like a success. Right after a
+`--no-block` start the state can also still read `inactive` while the job is
+queued. Waiting for the `InvocationID` to change, then for `ActiveState` to
+leave `activating`, avoids both. Then:
+
+```bash
+systemctl show "$U" -p ActiveState -p Result -p ExecMainStatus -p InvocationID
 RUN=$(ls -d /srv/dev/wrf/logs/*/ | sort | tail -1)
 tail -n 15 "$RUN/run.log"
 $P/.venv/bin/python $P/tools/warning_report.py "$RUN" --summary
