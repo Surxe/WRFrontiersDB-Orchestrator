@@ -69,6 +69,15 @@ runs; each consuming site pulls it in at build time.
 Out of scope for now: the discount visualizer and the news-research snapshot
 (they have their own cadence; a tighter pipeline there comes later).
 
+## Patch day
+
+Warnings never stop a publish; only a crashing stage does. When a patch's parse
+logs warnings (it usually does), the parser gets taught the new data through a
+human-in-the-loop process on the home-server: **[PATCH_DAY.md](PATCH_DAY.md)**.
+It covers reading the run-report email, the parser dev worktree over VS Code
+Remote-SSH, the `patch-warnings` skill (Parser repo) and the `republish-patch`
+skill (`.claude/skills/` here).
+
 ## Design
 
 - **One root, everything derived.** `WRF_ROOT` (default `/srv/dev/wrf`) and
