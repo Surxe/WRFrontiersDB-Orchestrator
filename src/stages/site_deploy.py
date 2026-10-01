@@ -1,4 +1,4 @@
-"""Site-deploy stage — dispatch WRFrontiersDB-Site's GitHub Pages workflow.
+"""Site-deploy stage — dispatch WRFrontiersDB-Site's CI workflow, which deploys Pages.
 
 The orchestrator publishes data to WRFrontiersDB-Data but does not push the Site
 repo, so nothing auto-triggers the Site's Pages deploy. This stage fires it
@@ -20,7 +20,10 @@ from logging_stream import RunLogger, run_streamed
 from repos import Repos
 
 SITE_REPO = "Surxe/WRFrontiersDB-Site"
-SITE_WORKFLOW = "pages.yaml"
+# ci.yaml (check -> test -> build -> deploy) replaced pages.yaml in Site #122.
+# Its deploy job runs for any non-PR event on main, so a workflow_dispatch on
+# --ref main builds against the fresh data and publishes GitHub Pages.
+SITE_WORKFLOW = "ci.yaml"
 SITE_DEPLOY_REF = "main"
 
 
