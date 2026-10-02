@@ -1,18 +1,20 @@
 ---
 name: republish-patch
-description: After a parser patch PR (patch/<version>) is merged, bring the pipeline up to date and re-run the orchestrator for that version so the fixed parse is published - switch the Parser back to main (deleting the patch branch), fast-forward it + its venv, start wrf-orchestrator@<version>, and verify the new run's parse warnings. Use when the user runs /republish-patch <version> or asks to republish / re-run the pipeline after a parser fix merged. Replaces /merged for parser patch PRs.
+description: After a parser patch PR (patch/<version>) is merged, bring the pipeline up to date and re-run the orchestrator for that version so the fixed parse is published - fast-forward the pipeline's Parser checkout + venv, return the Parser dev checkout to main (deleting the patch branch), start wrf-orchestrator@<version>, and verify the new run's parse warnings. Use when the user runs /republish-patch <version> or asks to republish / re-run the pipeline after a parser fix merged. Replaces /merged for parser patch PRs.
 ---
 
 # republish-patch
 
 Step 7 of `PATCH_DAY.md`. The parser fix for `<version>` has merged; publish it.
-The pipeline runs whatever is checked out in `$REPOS_DIR`, so the Parser must be
-back on an up-to-date, clean `main` before the run.
+The pipeline runs whatever is checked out in `$REPOS_DIR/WRFrontiersDB-Parser`,
+so that checkout must be on an up-to-date, clean `main` before the run.
 
 Argument: the patch version (`yyyy-mm-dd[-N]`). Required.
 
 Paths (`$WRF_ROOT`, `$REPOS_DIR`: the pipeline's options, see README):
-- Parser: `$REPOS_DIR/WRFrontiersDB-Parser`
+- `P` - the pipeline's Parser checkout: `$REPOS_DIR/WRFrontiersDB-Parser`
+- `D` - the Parser dev checkout the patch was developed in. Where that is comes
+  from the machine's own instructions; it may be `P` itself.
 - Other pipeline repos: `$REPOS_DIR/{WRFrontiersDB-Orchestrator,WRFrontiers-Exporter,WRFrontiersDB-Site}`
 
 ## 1. Gates (stop on any failure and tell the user)
@@ -20,25 +22,32 @@ Paths (`$WRF_ROOT`, `$REPOS_DIR`: the pipeline's options, see README):
 ```bash
 V=<version>
 P=$REPOS_DIR/WRFrontiersDB-Parser
+D=<Parser dev checkout>
 REPO=$(git -C $P remote get-url origin | sed -E 's#https://([^@]*@)?github.com/##; s#\.git$##')
 gh pr list -R "$REPO" --state merged --head "patch/$V" --json number,title,mergedAt,url
 systemctl list-units 'wrf-orchestrator@*' --state=activating,active --no-legend
 git -C $P status --porcelain; git -C $P rev-parse --abbrev-ref HEAD
+git -C $D status --porcelain; git -C $D rev-parse --abbrev-ref HEAD
 ```
 
 - No merged PR for `patch/$V` -> STOP. If the fix went in under another branch
   name, ask the user for the PR and check that it's merged instead.
 - An orchestrator run is active -> STOP. Don't stack runs.
-- Parser dirty, or on a branch other than `main` / `patch/$V` -> STOP. Don't
-  clean it yourself; ask the user.
+- `P` or `D` dirty -> STOP. Don't clean it yourself; ask the user.
+- `P` on a branch other than `main` (or `patch/$V` when `D` is `P`) -> STOP and
+  ask; something else is checked out where the pipeline runs.
 
 ## 2. Update the pipeline
 
 ```bash
-git -C $P fetch --prune origin
-git -C $P switch main
+git -C $D fetch --prune origin
+if [ "$D" = "$P" ]; then
+  git -C $P switch main
+else
+  git -C $D switch --detach origin/main   # main itself is checked out in P
+fi
+git -C $D branch -D "patch/$V" 2>/dev/null || true   # -D: squash merges aren't ancestors
 git -C $P pull --ff-only
-git -C $P branch -D "patch/$V" 2>/dev/null || true   # -D: squash merges aren't ancestors
 $P/.venv/bin/pip install -q -r $P/requirements.txt
 ```
 
@@ -97,14 +106,14 @@ RUN=$(ls -d $WRF_ROOT/logs/*/ | sort | tail -1)
 tail -n 15 "$RUN/run.log"
 $P/.venv/bin/python $P/tools/warning_report.py "$RUN" --summary
 $P/.venv/bin/python $P/tools/warning_report.py "$RUN" --stdout \
-    --decisions "$P/decisions/$V.json" | grep -E '^(### |- decision:|\| `)'
+    --decisions "$D/decisions/$V.json" | grep -E '^(### |- decision:|\| `)'
 ```
 
-Passing `--decisions` points the report at the Parser's local decisions file
-(gitignored). The republished run is
+Passing `--decisions` points the report at the dev checkout's local decisions
+file (gitignored). The republished run is
 the newest completed parse, so the script marks every `approved` group it no
 longer produces as `done`. If one is still present, it stays `approved`: the fix
-didn't take. If `$P/decisions/$V.json` doesn't exist (the triage was done without
+didn't take. If `$D/decisions/$V.json` doesn't exist (the triage was done without
 the file), drop the flag.
 
 ## 4. Report

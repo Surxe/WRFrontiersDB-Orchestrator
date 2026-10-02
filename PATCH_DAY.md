@@ -4,7 +4,10 @@ What happens when War Robots Frontiers patches, what the pipeline does on its
 own, and the human-in-the-loop process for the part that needs you: teaching
 the parser the patch's new data. Everything runs on the machine that hosts the
 pipeline. Paths use the pipeline's two knobs, `$WRF_ROOT` and `$REPOS_DIR` (see
-[README](README.md#options)).
+[README](README.md#options)). The pipeline runs the Parser checked out at
+`$REPOS_DIR/WRFrontiersDB-Parser`; the **Parser dev checkout** below is wherever
+the machine's own instructions say to develop the Parser (possibly that same
+directory).
 
 ```
 probe (every 20 min) -> wrf-orchestrator@<version> -> EXPORT -> PARSE+PUSH -> RELEASES -> SITE -> SITE-DEPLOY
@@ -44,7 +47,7 @@ The counts on their own tell you little: on 2026-09-29, 1,500 lines were
 
 ## 3. Open the workspace
 
-Open `$REPOS_DIR/WRFrontiersDB-Parser` in your editor, and add
+Open the Parser dev checkout in your editor, and add
 `$WRF_ROOT/dev/parsed-review` (the parsed-output review repo; appears after
 `init`) and optionally `$WRF_ROOT/logs`. A scratch parse peaks at ~2.6 GB of
 memory.
@@ -52,21 +55,21 @@ memory.
 ## 4. Triage with Claude
 
 ```bash
-cd $REPOS_DIR/WRFrontiersDB-Parser
+cd <Parser dev checkout>
 claude
 > /patch-warnings 2026-09-29
 ```
 
 The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
 
-1. Put the Parser on a `patch/<version>` branch and run
-   `tools/patch_day.sh init <version>`. That points the repo's `.env` at the
+1. Put the dev checkout on a `patch/<version>` branch and run
+   `tools/patch_day.sh init <version>`. That points the dev checkout's `.env` at the
    patch's export and creates the review repo, whose `baseline` commit is the
    pipeline's parsed output.
 2. Group the pipeline's parse log with `tools/warning_report.py`, in the
    order **error -> warning -> unknown-property**. Plain `warning`s are the
    likely regressions: an existing parser check tripped on changed data. The
-   report is written to `reports/latest.md` in the Parser repo (gitignored).
+   report is written to `reports/latest.md` in the dev checkout (gitignored).
    Open it and press `Ctrl+Shift+V` for the preview. It has a summary table, and
    each group links to the owning parser line and the export JSON, which open in
    the editor, plus the asset viewer. Leave the preview open: every scratch
@@ -77,8 +80,8 @@ The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
 4. Read the export slice behind each group and write a proposal for each one
    into the decisions file (below).
 
-**Decisions file.** The report keeps `decisions/<version>.json` in the Parser
-repo in sync with the log. The file is **gitignored and local only**, so
+**Decisions file.** The report keeps `decisions/<version>.json` in the dev
+checkout in sync with the log. The file is **gitignored and local only**, so
 back it up yourself if you want it kept. Every group has a stable id
 (`u-`/`w-`/`e-` + 8 hex, shown in the report) and one entry with `status`,
 `proposal`, `reason`, `confidence`, `notes`. New groups arrive as `undecided`.
@@ -133,8 +136,8 @@ from the decisions file: properties handled, skipped + why, fixes, open items,
 verification). Review and merge it on GitHub as usual (squash or not is your
 call).
 
-`/republish-patch` does the post-merge cleanup (back to `main`, delete the patch
-branch) as part of republishing.
+`/republish-patch` does the post-merge cleanup (dev checkout back to `main`,
+patch branch deleted) as part of republishing.
 
 ## 7. Republish
 
@@ -146,14 +149,14 @@ claude
 > /republish-patch 2026-09-29
 ```
 
-The skill checks that the PR merged and that no run is active. It then switches
-the Parser back to `main` (deleting the patch branch), fast-forwards it, syncs
-its venv, and re-runs
+The skill checks that the PR merged and that no run is active. It then returns
+the dev checkout to `main` (deleting the patch branch), fast-forwards the
+pipeline's Parser checkout and syncs its venv, and re-runs
 `sudo systemctl start wrf-orchestrator@<version>.service`. Nothing is re-downloaded
 or re-exported, because without `--force-*` those steps skip output that
 already exists. The run re-parses, re-pushes `current/`, re-runs RELEASES
 (idempotent) and rebuilds/deploys the site. It then groups the new run's parse
-log against the Parser's `decisions/<version>.json`. That run is the
+log against the dev checkout's `decisions/<version>.json`. That run is the
 newest completed parse, so groups it no longer produces are confirmed `done`, and
 the report shows what's left (normally just the deferred ones). You also get
 the usual email.
@@ -162,7 +165,7 @@ By hand:
 
 ```bash
 P=$REPOS_DIR/WRFrontiersDB-Parser
-git -C $P switch main && git -C $P pull --ff-only
+git -C $P pull --ff-only    # P must already be on a clean main
 $P/.venv/bin/pip install -q -r $P/requirements.txt
 sudo systemctl start --no-block wrf-orchestrator@2026-09-29.service
 sudo journalctl -u wrf-orchestrator@2026-09-29 -f
@@ -170,10 +173,10 @@ sudo journalctl -u wrf-orchestrator@2026-09-29 -f
 
 ## Doing it without Claude
 
-Everything the skill does is plain tooling in the Parser repo:
+Everything the skill does is plain tooling in the Parser dev checkout:
 
 ```bash
-cd $REPOS_DIR/WRFrontiersDB-Parser
+cd <Parser dev checkout>
 git fetch origin && git switch -c patch/2026-09-29 origin/main
 tools/patch_day.sh init 2026-09-29
 .venv/bin/python tools/warning_report.py              # group the latest pipeline run's parse log -> reports/latest.md
@@ -187,14 +190,13 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
 ## Rules of thumb
 
 - **The parser is the only repo patch day changes.**
-- The pipeline runs whatever is checked out in `$REPOS_DIR`, so a patch branch
-  there is what the next run uses. Finish (or switch back to a clean `main`)
-  before another run starts.
+- The pipeline runs whatever is checked out at `$REPOS_DIR/WRFrontiersDB-Parser`;
+  it must be on a clean, current `main` when a run starts.
 - Scratch parses never push. Publishing is the pipeline's job.
 - `tools/patch_day.sh init` resets the review repo. Re-run it only for a new version.
 - `decisions/` never goes to the remote (gitignored). It's the only record of
-  deferred items between patches, so include the Parser's `decisions/` in your
-  own backups.
+  deferred items between patches, so include the dev checkout's `decisions/` in
+  your own backups.
 
 ## Troubleshooting
 
@@ -202,7 +204,7 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
   with a different environment than your scratch parse. On 2026-09-29 the pipeline
   Parser venv lacked `zstandard` (a newly added requirement), so every
   model's `meshes` came out empty. The only trace was 370 DEBUG lines. Fix with
-  `pip install -r requirements.txt` in the Parser's venv (republish does
+  `pip install -r requirements.txt` in the pipeline Parser's venv (republish does
   this), then republish.
 - **Scratch parse killed / box sluggish.** Memory: a parse peaks ~2.6 GB. Don't
   run one while the pipeline is running (`systemctl is-active 'wrf-orchestrator@*'`).
