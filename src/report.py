@@ -3,7 +3,7 @@
 The report is pure reporting layered on top of the run: it never changes what the
 pipeline does. For a finished (or aborted) run it answers:
 
-* how many warnings/errors each step that was reached produced,
+* how many warnings/errors/unknown properties each step that was reached produced,
 * what those warning/error lines actually said (inline, capped), and
 * where every log file is (as a clickable ``file://`` link).
 
@@ -19,7 +19,10 @@ Two count strategies, because not every step logs the same way:
 
 * the orchestrator's own steps and the Python sub-repos (preflight, export,
   parse, releases) log through loguru, whose lines start with the level token
-  (``WARNING | ...``) — counted exactly;
+  (``WARNING | ...``) — counted exactly. The parser logs every unknown property
+  (new game data it neither parses nor skips) at its custom ``UNKNOWN_PROPERTY``
+  level; those are counted separately and not shown inline, since one patch can
+  produce thousands of them (the parser's tools/warning_report.py groups them);
 * the SITE / SITE-DEPLOY steps shell out to npm/astro/gh, which have no loguru
   levels, so their counts are a best-effort text scan, flagged as approximate.
 """
@@ -37,6 +40,8 @@ _LOGURU_STAGES = {"preflight", "export", "parse", "releases"}
 # Loguru file lines look like: "WARNING | module:function:line - message".
 _LOGURU_WARN = re.compile(r"^WARNING\b")
 _LOGURU_ERROR = re.compile(r"^(ERROR|CRITICAL)\b")
+# Parser's custom level for unknown properties (WRFrontiersDB-Parser src/utils.py).
+_LOGURU_UNKNOWN = re.compile(r"^UNKNOWN_PROPERTY\b")
 
 # Heuristic scan for the npm/astro/gh stages (no structured levels).
 _TEXT_WARN = re.compile(r"\bwarn(?:ing)?\b", re.IGNORECASE)
@@ -54,6 +59,7 @@ class StepCount:
     approx: bool          # counts are a text heuristic (npm/gh), not loguru levels
     lines: tuple[str, ...]  # the actual warning/error lines (capped to _MAX_LINES)
     truncated: bool       # there were more matching lines than are shown
+    unknown: int = 0      # UNKNOWN_PROPERTY lines (loguru stages only; not inline)
 
 
 def _count_file(stage: str, path: Path) -> StepCount:
@@ -67,9 +73,12 @@ def _count_file(stage: str, path: Path) -> StepCount:
     warn_re, err_re = (
         (_LOGURU_WARN, _LOGURU_ERROR) if loguru else (_TEXT_WARN, _TEXT_ERROR)
     )
-    warnings = errors = 0
+    warnings = errors = unknown = 0
     collected: list[str] = []
     for ln in text.splitlines():
+        if loguru and _LOGURU_UNKNOWN.match(ln):
+            unknown += 1
+            continue
         is_err = bool(err_re.search(ln))
         # For loguru a line has exactly one level; the heuristic may match both,
         # so count it once (error wins) to avoid double counting.
@@ -82,7 +91,7 @@ def _count_file(stage: str, path: Path) -> StepCount:
             if len(collected) < _MAX_LINES:
                 collected.append(ln.rstrip())
     truncated = (warnings + errors) > len(collected)
-    return StepCount(stage, warnings, errors, not loguru, tuple(collected), truncated)
+    return StepCount(stage, warnings, errors, not loguru, tuple(collected), truncated, unknown)
 
 
 class RunReport:
@@ -102,9 +111,11 @@ class RunReport:
     def counts(self) -> list[StepCount]:
         return [_count_file(stage, path) for stage, path in self._runlog.stage_logs]
 
-    def totals(self) -> tuple[int, int]:
+    def totals(self) -> tuple[int, int, int]:
+        """(warnings, errors, unknown properties) across every step reached."""
         counts = self.counts()
-        return sum(c.warnings for c in counts), sum(c.errors for c in counts)
+        return (sum(c.warnings for c in counts), sum(c.errors for c in counts),
+                sum(c.unknown for c in counts))
 
     def hs_command(self) -> str:
         """A copy-paste command to reach this run's logs on the home-server.
@@ -118,29 +129,29 @@ class RunReport:
 
     def subject(self) -> str:
         version = self.game_version or "unknown"
-        warns, errs = self.totals()
+        warns, errs, unknown = self.totals()
         return (f"WRFrontiersDB {version} - {self.result}: "
-                f"{warns} warnings, {errs} errors")
+                f"{warns} warnings, {errs} errors, {unknown} unknown properties")
 
     # -- plain text ------------------------------------------------------------
     def body(self) -> str:
         version = self.game_version or "unknown"
         counts = self.counts()
-        warns, errs = self.totals()
+        warns, errs, unknown = self.totals()
 
         out = [
             "WRFrontiersDB-Orchestrator run report",
             f"Patch:  {version}",
             f"Result: {self.result}",
-            f"Totals: {warns} warnings, {errs} errors",
+            f"Totals: {warns} warnings, {errs} errors, {unknown} unknown properties",
             "",
-            "Steps reached (warnings / errors):",
+            "Steps reached (warnings / errors / unknown properties):",
         ]
         if counts:
             width = max(len(c.stage) for c in counts)
             for c in counts:
                 flag = " ~approx" if c.approx else ""
-                out.append(f"  {c.stage:<{width}}  {c.warnings}W / {c.errors}E{flag}")
+                out.append(f"  {c.stage:<{width}}  {c.warnings}W / {c.errors}E / {c.unknown}U{flag}")
         else:
             out.append("  (no steps ran)")
 
@@ -170,24 +181,27 @@ class RunReport:
     def body_html(self) -> str:
         version = html.escape(self.game_version or "unknown")
         counts = self.counts()
-        warns, errs = self.totals()
+        warns, errs, unknown = self.totals()
 
         p = ['<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;'
              'font-size:14px;line-height:1.5">']
         p.append("<h2 style='margin:0 0 8px'>WRFrontiersDB-Orchestrator run report</h2>")
         p.append(f"<p style='margin:0 0 12px'>Patch: <b>{version}</b><br>"
                  f"Result: <b>{html.escape(self.result)}</b><br>"
-                 f"Totals: <b>{warns}</b> warnings, <b>{errs}</b> errors</p>")
+                 f"Totals: <b>{warns}</b> warnings, <b>{errs}</b> errors, "
+                 f"<b>{unknown}</b> unknown properties</p>")
 
         p.append("<h3 style='margin:12px 0 4px'>Steps reached</h3>")
         if counts:
             p.append("<table cellpadding='4' style='border-collapse:collapse'>")
             p.append("<tr><th align='left'>step</th><th align='right'>warnings</th>"
-                     "<th align='right'>errors</th></tr>")
+                     "<th align='right'>errors</th>"
+                     "<th align='right'>unknown properties</th></tr>")
             for c in counts:
                 stage = html.escape(c.stage) + (" <i>~approx</i>" if c.approx else "")
                 p.append(f"<tr><td>{stage}</td><td align='right'>{c.warnings}</td>"
-                         f"<td align='right'>{c.errors}</td></tr>")
+                         f"<td align='right'>{c.errors}</td>"
+                         f"<td align='right'>{c.unknown}</td></tr>")
             p.append("</table>")
         else:
             p.append("<p>(no steps ran)</p>")

@@ -22,8 +22,9 @@ probe (every 20 min) -> wrf-orchestrator@<version> -> EXPORT -> PARSE+PUSH -> RE
   WRFrontiersDB-Data even with thousands of warnings, and so is one with
   `logger.error` lines. Only an exception (a stage exiting non-zero) stops the
   run, and with it every later stage.
-- Every run ends with the **run-report email**: per-step WARNING/ERROR counts,
-  then links to every log under `/srv/dev/wrf/logs/<run-timestamp>/`.
+- Every run ends with the **run-report email**: per-step WARNING / ERROR /
+  UNKNOWN_PROPERTY counts (the last is the parser's level for new game data it
+  neither parses nor skips; counted only, not listed inline), then links to every log under `/srv/dev/wrf/logs/<run-timestamp>/`.
 
 Because the data is already live, the parser work below is about making the
 *next* publish complete. There's no deadline beyond "before players notice gaps".
@@ -33,11 +34,11 @@ Because the data is already live, the parser work below is about making the
 | Email says | Meaning | Do |
 | --- | --- | --- |
 | All counts 0, COMPLETE | Parser covered the patch | Nothing |
-| `parse` warnings/errors > 0, COMPLETE | Data published with gaps | Sections 3-7 |
+| `parse` warnings/errors/unknown properties > 0, COMPLETE | Data published with gaps | Sections 3-7 |
 | `FAILED at <STAGE>` | A stage crashed | Read that stage's log (`NN-<stage>.log`). A failure **after** PARSE means the data was already pushed but later stages (site) didn't run. Fix, then [republish](#7-republish). |
 | `PREFLIGHT FAILED` | Missing secret/venv/mount | Read `01-preflight.log` |
 
-The warning count on its own tells you little: on 2026-09-29, 1,500 lines were
+The counts on their own tell you little: on 2026-09-29, 1,500 lines were
 13 distinct issues, 1,488 of them one repeated message. Section 4 groups them.
 
 ## 3. Open the workspace (VS Code Remote-SSH)
