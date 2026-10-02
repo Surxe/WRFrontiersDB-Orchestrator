@@ -40,6 +40,7 @@ robots, recorded like any other.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -259,9 +260,29 @@ def record_releases(
 
 
 # --- publishing (the one git operation, for output not comparison) -----------
+def _basic_auth_value(pat: str) -> str:
+    return base64.b64encode(f"x-access-token:{pat}".encode()).decode()
+
+
+def _git_auth_env(pat: str) -> dict[str, str]:
+    """Authenticate one git process to GitHub with `pat`, via environment config.
+
+    GIT_CONFIG_COUNT/KEY/VALUE (git 2.31+) sets an http.extraheader for this
+    process only, the way actions/checkout does. A PAT embedded in the remote URL
+    would be written to the data clone's .git/config and stay on disk.
+    """
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {_basic_auth_value(pat)}",
+    }
+
+
 def _git(args: list[str], cwd: Path, pat: str | None = None) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"})
+    if pat:
+        env.update(_git_auth_env(pat))
     proc = subprocess.run(
         ["git", *args], cwd=str(cwd), env=env,
         capture_output=True, text=True, encoding="utf-8", errors="ignore",
@@ -269,7 +290,7 @@ def _git(args: list[str], cwd: Path, pat: str | None = None) -> subprocess.Compl
     if proc.returncode != 0:
         out = (proc.stdout or "") + (proc.stderr or "")
         if pat:
-            out = out.replace(pat, "********")
+            out = out.replace(pat, "********").replace(_basic_auth_value(pat), "********")
         raise ReleasesError(f"git {args[0]} failed: {out.strip()}")
     return proc
 
@@ -281,10 +302,10 @@ def publish_curated(data_dir: Path, *, pat: str, branch: str, message: str) -> N
     uncommitted local edit would be discarded before it ever reached the remote.
     """
     data_dir = Path(data_dir)
-    url = f"https://{pat}@github.com/{DATA_REPO_SLUG}.git"
     _git(["config", "--local", "user.email", "orchestrator@example.com"], data_dir)
     _git(["config", "--local", "user.name", "Orchestrator"], data_dir)
-    _git(["remote", "set-url", "origin", url], data_dir, pat=pat)
+    # Plain URL (the PAT goes in via _git's env): also scrubs a PAT embedded by older versions.
+    _git(["remote", "set-url", "origin", f"https://github.com/{DATA_REPO_SLUG}.git"], data_dir)
     _git(["add", str(CURATED_REL)], data_dir)
     status = _git(["status", "--porcelain", "--", str(CURATED_REL)], data_dir)
     if not status.stdout.strip():
