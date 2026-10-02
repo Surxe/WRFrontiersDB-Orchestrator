@@ -73,10 +73,9 @@ Out of scope for now: the discount visualizer and the news-research snapshot
 
 Warnings never stop a publish; only a crashing stage does. When a patch's parse
 logs warnings (it usually does), the parser gets taught the new data through a
-human-in-the-loop process on the home-server: **[PATCH_DAY.md](PATCH_DAY.md)**.
-It covers reading the run-report email, the parser dev worktree over VS Code
-Remote-SSH, the `patch-warnings` skill (Parser repo) and the `republish-patch`
-skill (`.claude/skills/` here).
+human-in-the-loop process: **[PATCH_DAY.md](PATCH_DAY.md)**. It covers reading
+the run-report email, the `patch-warnings` skill (Parser repo) and the
+`republish-patch` skill (`.claude/skills/` here).
 
 ## Design
 
