@@ -60,6 +60,9 @@ class ReportCountTests(unittest.TestCase):
                 "INFO | parse:main:1 - start\n"
                 "WARNING | parse:x:2 - a\n"
                 "WARNING | parse:x:3 - b\n"
+                "UNKNOWN_PROPERTY | utils:p:6 - Ability A.0 has unknown property: 'K' of value '1'\n"
+                "UNKNOWN_PROPERTY | utils:p:7 - Ability B.0 has unknown property: 'K' of value '2'\n"
+                "UNKNOWN_PROPERTY | utils:p:8 - Ability C.0 has unknown property: 'K' of value '3'\n"
                 "ERROR | parse:y:4 - boom\n"
                 "CRITICAL | parse:z:5 - dead\n"
             ),
@@ -68,9 +71,15 @@ class ReportCountTests(unittest.TestCase):
         self.assertEqual((counts["preflight"].warnings, counts["preflight"].errors), (0, 0))
         self.assertEqual((counts["parse"].warnings, counts["parse"].errors), (2, 2))
         self.assertFalse(counts["parse"].approx)
-        self.assertEqual(rep.totals(), (2, 2))
-        # The actual warning/error lines are captured inline (self-contained email).
+        self.assertEqual(counts["parse"].unknown, 3)
+        self.assertEqual(rep.totals(), (2, 2, 3))
+        # The actual warning/error lines are captured inline (self-contained email);
+        # unknown properties are only counted.
         self.assertEqual(len(counts["parse"].lines), 4)
+        self.assertFalse(any("unknown property" in ln for ln in counts["parse"].lines))
+        self.assertIn("3 unknown properties", rep.subject())
+        self.assertIn("2W / 2E / 3U", rep.body())
+        self.assertIn("<b>3</b> unknown properties", rep.body_html())
         self.assertTrue(any("boom" in ln for ln in counts["parse"].lines))
 
     def test_site_counts_are_heuristic(self):

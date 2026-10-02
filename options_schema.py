@@ -88,8 +88,8 @@ OPTIONS_SCHEMA = {
     },
 
     # -------------------------------------------------------------- Email report
-    # After every run the orchestrator emails a report (per-step warning/error
-    # counts + file:// links to the logs). Email is enabled only when SMTP_USER,
+    # After every run the orchestrator emails a report (per-step warning/error/
+    # unknown-property counts + file:// links to the logs). Email is enabled only when SMTP_USER,
     # SMTP_PASSWORD, and EMAIL_TO are all set; absent any, the report is logged
     # only. The three sensitive values are supplied by the orchestrator's
     # non-checked-in secrets (never committed) — see secrets.env.example.

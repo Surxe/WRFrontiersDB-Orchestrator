@@ -29,7 +29,9 @@ WRFrontiersDB-Parser) so the toolchain reads as one system.
 
 ## Logging
 
-* Levels: `TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL`.
+* Levels: `TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL`. The Parser adds a
+  custom `UNKNOWN_PROPERTY` level (no 31, between WARNING and ERROR) for unknown
+  properties; `src/report.py` counts it separately from warnings.
 * Every stage's child process is streamed live to the console **and** teed to
   `LOG_DIR/<run-timestamp>/<NN-stage>.log`. Children run with `PYTHONUNBUFFERED=1`
   so output is never swallowed by block buffering.

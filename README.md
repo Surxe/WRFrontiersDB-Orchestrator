@@ -93,8 +93,10 @@ skill (`.claude/skills/` here).
   aggregate `run.log` and their own `NN-<step>.log` — so every step has a
   URI-referenceable log with level-tagged lines.
 - **Run-report email.** After every run — success, stage failure, or preflight
-  abort — the orchestrator emails a report: per-step warning/error counts at the
-  top, then `file://` links to every log. Counts are exact for the loguru steps
+  abort — the orchestrator emails a report: per-step warning/error/unknown-property
+  counts at the top, then `file://` links to every log. Unknown properties (the
+  parser's custom `UNKNOWN_PROPERTY` level: new game data it neither parses nor
+  skips) are counted only; warning and error lines are also shown inline. Counts are exact for the loguru steps
   (preflight/export/parse/releases) and a flagged text heuristic for the
   npm/astro/gh SITE steps. Email is enabled only when `SMTP_USER`,
   `SMTP_PASSWORD`, and `EMAIL_TO` are all set (see
