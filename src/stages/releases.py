@@ -1,18 +1,21 @@
-"""Releases stage — record newly-released robots into the data repo's curated file.
+"""Releases stage — record newly-released robots and this patch's manifest.
 
 Runs after PARSE (so `current/` holds this patch's roster and the data repo is a
 fresh, PAT-configured checkout). Diffs the roster against
-`curated/robot_release_dates.json`, appends/backfills any newly-released robot
-with the fields the pipeline can source, and commits + pushes that one file.
+`curated/robot_release_dates.json` (keyed by `virtual_bot_ref`), adds/settles any
+newly-released robot, merges every known build into `curated/patch_manifests.json`
+(keyed by manifest GID), and commits + pushes those two files.
 
 Sourceable fields:
-  * release_date            <- the in-house version id (game_version / version.txt)
+  * release_date / version  <- the in-house version id (game_version / version.txt)
   * manifest_id             <- data/steam-download/manifest.txt (the built GID)
-  * patch_released_at_utc   <- the probe's state file `timeupdated`, but only when
-                               its `last_gid` matches the built manifest; else null
-                               (no live Steam lookup — offline only).
-Article-derived fields (release_context, source_article_ids) are left for the
-news-scraper / a human.
+  * buildid,
+    patch_released_at_utc   <- the probe's state file (`buildid`, `timeupdated`),
+                               only for its `last_gid`; null otherwise (no live
+                               Steam lookup — offline only).
+The probe's GID->version registry is merged in too, so every patch the box has
+versioned is published, not just the one built now. Article-derived fields
+(release_context, source_article_ids) are left for the news-scraper / a human.
 
 Advisory: a failure here never fails the pipeline (the data is already published
 and SITE should still build), but it is logged loudly.
@@ -24,6 +27,7 @@ from loguru import logger
 
 import probe
 import releases
+import versioning
 from logging_stream import RunLogger
 from repos import Repos
 
@@ -37,20 +41,29 @@ def _read_manifest_id(repos: Repos) -> str | None:
         return None
 
 
-def _resolve_patch_utc(manifest_id: str | None) -> str | None:
-    """UTC publish time for `manifest_id` from the probe's state file (offline).
+def _collect_builds(manifest_id: str | None, game_version: str) -> dict[str, dict]:
+    """Every build known offline: {gid: {version, buildid, patch_released_at_utc}}.
 
-    The probe records `last_gid` + `timeupdated` for the public build it detected.
-    We use its time only when that GID matches the manifest we actually built; no
-    live Steam lookup, so an unmatched or absent state simply yields None (never a
-    guess). Wiring the probe as the pipeline trigger is what keeps this populated.
+    The probe's registry gives GID->version for each patch it has versioned; its
+    state file adds buildid + publish time for the latest GID. The built manifest is
+    included under `game_version` (a registry version wins if they disagree — it is
+    what the probe handed the pipeline).
     """
-    if not manifest_id:
-        return None
+    registry = versioning.load_registry(probe.registry_path(probe.DEFAULT_STATE))
+    builds = {gid: {"version": version} for gid, version in registry.items()}
+
+    if manifest_id:
+        build = builds.setdefault(manifest_id, {"version": game_version})
+        if build["version"] != game_version:
+            logger.warning(f"manifest {manifest_id} is {build['version']} in the probe registry "
+                           f"but this run is {game_version}; recording the registry version")
+
     state = probe.load_state(probe.DEFAULT_STATE)
-    if state.get("last_gid") == manifest_id and state.get("timeupdated"):
-        return releases.epoch_to_utc_iso(state["timeupdated"])
-    return None
+    latest = builds.get(state.get("last_gid"))
+    if latest is not None:
+        latest["buildid"] = state.get("buildid")
+        latest["patch_released_at_utc"] = releases.epoch_to_utc_iso(state.get("timeupdated"))
+    return builds
 
 
 def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
@@ -60,17 +73,14 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
 
 def _run(options, repos: Repos, game_version: str) -> int:
     manifest_id = _read_manifest_id(repos)
-    patch_utc = _resolve_patch_utc(manifest_id)
-    logger.info(f"version={game_version} manifest_id={manifest_id} patch_utc={patch_utc}")
+    builds = _collect_builds(manifest_id, game_version)
+    logger.info(f"version={game_version} manifest_id={manifest_id} known_builds={len(builds)}")
 
     try:
         result = releases.record_releases(
-            data_dir=repos.data_dir,
-            version=game_version,
-            manifest_id=manifest_id,
-            patch_released_at_utc=patch_utc,
-            write=True,
+            data_dir=repos.data_dir, version=game_version, manifest_id=manifest_id, write=True,
         )
+        patches = releases.record_patch_manifests(repos.data_dir, builds, write=True)
     except releases.ReleasesError as exc:
         logger.error(f"recording failed (non-fatal): {exc}")
         return 0
@@ -81,45 +91,47 @@ def _run(options, repos: Repos, game_version: str) -> int:
             "WRF does not retire robots; likely a slug rename. Verify."
         )
     for b in result.backfilled:
-        logger.info(f"backfilled {b['name']} ({b['id']}): {b['filled']}")
+        logger.info(f"settled pending {b['name']} ({b['id']}): {b['filled']}")
+    if patches.changed:
+        logger.info(f"patch manifests: added {patches.added}, filled {patches.filled}")
 
-    if not result.new_bots:
-        if not result.changed:
-            logger.info("no new robots; curated file already lists the roster.")
-            return 0
-    else:
+    if result.new_bots:
         logger.info(f"NEW ROBOT(S) RELEASED in {game_version}"
                     + (" [SUSPECTED RENAME — verify]" if result.suspected_rename else ""))
         for b in result.new_bots:
             logger.info(f"  - {b['name']} ({b['id']}, {b['character_type']})")
+    elif not result.changed:
+        logger.info("no new robots; curated file already lists the roster.")
 
-    if not result.changed:
+    if not (result.changed or patches.changed):
         return 0
 
-    # Publish the one file. The Parser's push reclones each run, so an uncommitted
-    # edit would be discarded — this commit + push is the only git operation.
+    # Publish the files. The Parser's push reclones each run, so an uncommitted edit
+    # would be discarded — this commit + push is the only git operation.
     if not (options.should_push_data and options.gh_data_repo_pat):
-        logger.info("curated file updated locally; not pushed "
-                    "(push_data off or no PAT). It will be discarded on the next reclone.")
+        logger.info("curated files updated locally; not pushed "
+                    "(push_data off or no PAT). They will be discarded on the next reclone.")
         return 0
 
-    n_new, n_fill = len(result.new_bots), len(result.backfilled)
     bits = []
-    if n_new:
-        bits.append(f"add {n_new} newly-released robot(s)")
-    if n_fill:
-        bits.append(f"backfill {n_fill} ref(s)")
-    message = (f"Record robot releases for {game_version}: " + ", ".join(bits)
-               + "\n\ncuration/robot_release_dates.json auto-updated by the orchestrator "
-                 "RELEASES stage (roster diff).")
+    if result.new_bots:
+        bits.append(f"add {len(result.new_bots)} newly-released robot(s)")
+    if result.backfilled:
+        bits.append(f"settle {len(result.backfilled)} pending robot(s)")
+    if patches.added:
+        bits.append(f"add {len(patches.added)} patch manifest(s)")
+    if patches.filled:
+        bits.append(f"fill {len(patches.filled)} patch manifest(s)")
+    message = (f"Record releases for {game_version}: " + ", ".join(bits)
+               + "\n\ncurated/robot_release_dates.json + curated/patch_manifests.json "
+                 "auto-updated by the orchestrator RELEASES stage.")
     try:
         releases.publish_curated(
             repos.data_dir, pat=options.gh_data_repo_pat,
             branch=options.target_branch, message=message,
         )
-        logger.info(f"committed + pushed curated/robot_release_dates.json to "
-                    f"{options.target_branch}.")
+        logger.info(f"committed + pushed curated files to {options.target_branch}.")
     except releases.ReleasesError as exc:
-        logger.error(f"push of curated file failed (non-fatal): {exc}")
+        logger.error(f"push of curated files failed (non-fatal): {exc}")
 
     return 0

@@ -66,6 +66,11 @@ REPO = Path(__file__).resolve().parent.parent
 DEFAULT_STATE = REPO / "data" / "update_probe_state.json"
 
 
+def registry_path(state_path: Path) -> Path:
+    """The GID->version registry lives beside the state file (see src/versioning.py)."""
+    return state_path.parent / "version_registry.json"
+
+
 class ProbeError(RuntimeError):
     """A probe attempt failed in a way that must be treated as 'no change'."""
 
@@ -229,8 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     if ts is None:
         ts = int(time.time())
         logger.warning("manifest timeupdated missing; using current time for the version date")
-    registry_path = args.state.parent / "version_registry.json"
-    version = derive_version(ts, gid, registry_path)
+    version = derive_version(ts, gid, registry_path(args.state))
     logger.warning("PATCH DETECTED: gid {} -> {} (buildid {}) -> version {}",
                    prev_gid, gid, current["buildid"], version)
 

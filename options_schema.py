@@ -217,9 +217,9 @@ OPTIONS_SCHEMA = {
         "section": "Stages",
         "help": "Diff the pushed data repo's VirtualBot roster against "
                 "curated/robot_release_dates.json to detect newly-released robots, "
-                "record them there (version id + manifest id + UTC patch time), and "
-                "commit/push that file. Reads the data repo, so it wants parse/push "
-                "to have run first.",
+                "record them there (version id + manifest id) and the patch in "
+                "curated/patch_manifests.json, and commit/push both files. Reads "
+                "the data repo, so it wants parse/push to have run first.",
     },
     "SHOULD_BUILD_SITE": {
         "env": "SHOULD_BUILD_SITE",

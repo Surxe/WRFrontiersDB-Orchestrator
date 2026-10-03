@@ -18,7 +18,7 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ RELEASES �
 | EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
-| RELEASES | (this repo) | Diff the pushed `VirtualBot.json` roster vs `curated/robot_release_dates.json` → record newly-released robots (commit + push) |
+| RELEASES | (this repo) | Diff the pushed `VirtualBot.json` roster vs `curated/robot_release_dates.json` → record newly-released robots + this patch in `curated/patch_manifests.json` (commit + push) |
 | SITE | WRFrontiersDB-Site | `npm run build` against the updated data repo |
 
 ### RELEASES — newly-released robot detection
@@ -30,31 +30,38 @@ id in `current/Objects/VirtualBot.json` **is** the release signal (no
 with `Ready` core modules).
 
 The **store is the dedup source**: the data repo's
-`curated/robot_release_dates.json` already lists every robot with
-`virtual_bot_ref = OBJID_VirtualBot::<slug>`. A roster id whose ref is already
-there is already recorded, so detection is a pure file comparison — **no git diff
-against the previous patch and no separate state file**. For each unrecorded
-roster id the stage (`src/releases.py`) either:
+`curated/robot_release_dates.json` keys every robot by
+`virtual_bot_ref = OBJID_VirtualBot::<slug>` (`robots{}` and `titans{}`). A roster
+id whose ref is already a key is already recorded, so detection is a pure file
+comparison — **no git diff against the previous patch and no separate state
+file**. For each roster id the stage (`src/releases.py`) either:
 
-- **backfills** the ref onto a pre-recorded entry whose `virtual_bot_ref` is null
-  (a robot the news-scraper logged before it hit the roster — e.g. Angler),
-  filling only still-null fields so hand-curated data is never overwritten; or
-- **appends** a new entry (Mechs -> `robots[]`, Titans -> `titans[]`).
+- **appends** a new entry when its ref is not a key yet (Mechs -> `robots{}`,
+  Titans -> `titans{}`); or
+- **settles** a `pending_roster: true` entry (hand-recorded from the news before
+  the robot hit the roster, keyed by its expected ref), filling only still-null
+  fields and clearing the flag so hand-curated data is never overwritten.
 
 An auto-added entry carries only what the pipeline can source: `release_date` (the
-in-house version id), `manifest_id` (`data/steam-download/manifest.txt`), and
-`patch_released_at_utc` (the probe's state-file `timeupdated`, used only when its
-`last_gid` matches the built manifest, else null — offline only, no live Steam
-lookup). `release_context` and `source_article_ids` are left for the news-scraper /
-a human. A patch with no new robots is a no-op: nothing is written, committed, or
-errored.
+in-house version id) and `manifest_id` (`data/steam-download/manifest.txt`).
+`release_context` and `source_article_ids` are left for the news-scraper / a
+human. A patch that brings no new robot leaves this file untouched.
 
-- **Publish:** the edit is committed + pushed to the data repo. The Parser's push
+**Patch manifests:** per-build metadata lives once in the data repo's
+`curated/patch_manifests.json`, keyed by manifest GID: `version`, `buildid`, and
+`patch_released_at_utc`. A robot's `manifest_id` points into it. Each run merges in
+every build known offline — the probe's GID->version registry
+(`data/version_registry.json`), plus `buildid` / `timeupdated` from its state file
+for the latest GID, plus the manifest just built — fill-only, so the box-local
+registry is published instead of stranded on one box. No live Steam lookup.
+
+- **Publish:** the edits are committed + pushed to the data repo. The Parser's push
   reclones a fresh checkout each run, so an uncommitted local edit would be wiped
   — this push is the only git operation, and it is output, not comparison. It runs
   only when `--should-push-data` is on and a PAT is present.
 - **Standalone:** `.venv/bin/python src/releases.py` (`--no-write` to detect only;
-  exit `20` = new robot, `0` = none, `1` = error).
+  `--manifest-id` [`--buildid`, `--patch-utc`] also records that build's patch
+  manifest; exit `20` = new robot, `0` = none, `1` = error).
 - **Rename guard:** the id is `slugify(<localized name>)`, so a rename is rare; if
   a recorded ref's slug leaves the roster the same run a new id appears, the new
   bot is flagged `suspected_rename` for a human to confirm (WRF does not retire
@@ -354,7 +361,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--should-push-data`
 
-* **SHOULD_DETECT_RELEASES** - Diff the pushed data repo's VirtualBot roster against curated/robot_release_dates.json to detect newly-released robots, record them there (version id + manifest id + UTC patch time), and commit/push that file. Reads the data repo, so it wants parse/push to have run first.
+* **SHOULD_DETECT_RELEASES** - Diff the pushed data repo's VirtualBot roster against curated/robot_release_dates.json to detect newly-released robots, record them there (version id + manifest id) and the patch in curated/patch_manifests.json, and commit/push both files. Reads the data repo, so it wants parse/push to have run first.
   - Default: `"false"`
   - Command line: `--should-detect-releases`
 

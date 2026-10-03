@@ -24,7 +24,7 @@ def utc_date(timestamp: int | str) -> str:
     return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).strftime(_DATE_FMT)
 
 
-def _load_registry(path: Path) -> dict[str, str]:
+def load_registry(path: Path) -> dict[str, str]:
     """Read the GID->version registry; {} if absent or unreadable."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -48,7 +48,7 @@ def derive_version(timestamp: int | str, gid: str, registry_path: Path) -> str:
     -2, ...) is already taken by another GID on the same day.
     """
     gid = str(gid)
-    registry = _load_registry(registry_path)
+    registry = load_registry(registry_path)
     if gid in registry:
         return registry[gid]
 
