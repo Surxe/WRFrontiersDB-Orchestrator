@@ -93,7 +93,8 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   URI-referenceable log with level-tagged lines.
 - **Run-report email.** After every run — success, stage failure, or preflight
   abort — the orchestrator emails a report: per-step warning/error/unknown-property
-  counts at the top, then `file://` links to every log. Unknown properties (the
+  counts at the top, then `file://` links to every log, with the logs themselves
+  attached (each as text; one zip for a big run; none if too big even zipped). Unknown properties (the
   parser's custom `UNKNOWN_PROPERTY` level: new game data it neither parses nor
   skips) are counted only; warning and error lines are also shown inline. Counts are exact for the loguru steps
   (preflight/export/parse/releases) and a flagged text heuristic for the
@@ -102,6 +103,9 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   [Email report](#email-report)); otherwise the report is just logged. These are
   the orchestrator's own settings — independent of the Steam price tracker,
   supplied via the non-checked-in secrets, no shared credential file.
+  To test the email without a pipeline run, `src/send_test_email.py` rebuilds a
+  `TEST` report from an existing run's logs; the `send-test-email` skill
+  (`.claude/skills/` here) runs it with the `wrf-orchestrator@` unit's secrets.
 - **Manifest-date gate.** Before committing to a version string, preflight makes
   you eyeball the SteamDB manifest's release date against today — timezones can
   otherwise mislabel which calendar day a patch dropped.

@@ -10,18 +10,33 @@ code and no credential file is created here).
 One email per run (no per-item dedup): the tracker's daily-dedup state store has
 no place here. Delivery never crashes the run — every SMTP/OS error is caught and
 logged, because the report is the tail end of an already-finished pipeline.
+
+The run's log files ride along as attachments, so the full logs are readable
+from the email alone (the file:// links only work on the box). Small runs attach
+each log as plain text; a big run (the parser's UNKNOWN_PROPERTY lines can run
+to thousands) attaches them as one zip instead, and a run too big even zipped
+sends without attachments rather than bouncing off the provider's size limit.
 """
 
 from __future__ import annotations
 
+import io
 import smtplib
+import zipfile
 from dataclasses import dataclass
 from email.message import EmailMessage
+from pathlib import Path
 from typing import Callable, Optional
 
 from loguru import logger
 
 from report import RunReport
+
+# Raw log total up to which each log is attached as its own text file; above it
+# they go out as a single zip. Base64 inflates attachments ~4/3, and Gmail caps a
+# message at 25 MB, so the zip itself is held under _MAX_ZIP_BYTES.
+_MAX_PLAIN_BYTES = 10 * 1024 * 1024
+_MAX_ZIP_BYTES = 15 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -95,6 +110,7 @@ class EmailAlerter:
         # log links (plain-text clients don't auto-link file:// URIs).
         message.set_content(report.body())
         message.add_alternative(report.body_html(), subtype="html")
+        _attach_logs(message, report.log_files(), report.run_dir_name())
         return message
 
     def _deliver(self, message: EmailMessage) -> None:
@@ -102,6 +118,41 @@ class EmailAlerter:
             server.starttls()
             server.login(self.config.user, self.config.password)
             server.send_message(message)
+
+
+def _attach_logs(message: EmailMessage, paths: list[Path], run_name: str) -> None:
+    """Attach the run's logs: plain text if small, one zip if big, none if huge.
+
+    An unreadable log is skipped (logged), never fatal — the email still goes.
+    """
+    logs: list[tuple[str, bytes]] = []
+    for path in paths:
+        try:
+            logs.append((path.name, path.read_bytes()))
+        except OSError as exc:
+            logger.warning(f"Run-report email: not attaching {path}: {exc}")
+    if not logs:
+        return
+
+    if sum(len(data) for _name, data in logs) <= _MAX_PLAIN_BYTES:
+        for name, data in logs:
+            message.add_attachment(data, maintype="text", subtype="plain",
+                                   filename=name)
+        return
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, data in logs:
+            zf.writestr(f"{run_name}/{name}", data)
+    archive = buf.getvalue()
+    if len(archive) > _MAX_ZIP_BYTES:
+        logger.warning(
+            f"Run-report email: logs are {len(archive)} bytes zipped (over "
+            f"{_MAX_ZIP_BYTES}); sending without attachments."
+        )
+        return
+    message.add_attachment(archive, maintype="application", subtype="zip",
+                           filename=f"{run_name}-logs.zip")
 
 
 def send_report(options, report: RunReport) -> bool:
