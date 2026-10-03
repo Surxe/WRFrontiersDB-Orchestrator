@@ -208,11 +208,56 @@ class EmailAlerterTests(unittest.TestCase):
         self.assertEqual(sent.sent["From"], "from@x.com")
         self.assertEqual(sent.sent["To"], "to@y.com")
         self.assertIn("COMPLETE", sent.sent["Subject"])
-        # multipart/alternative: a plain text part and a hyperlinked HTML part.
+        # multipart/mixed: the plain/HTML alternative body plus the log attachments.
         msg = sent.sent
-        self.assertEqual(msg.get_content_type(), "multipart/alternative")
+        self.assertEqual(msg.get_content_type(), "multipart/mixed")
         html_part = msg.get_body(preferencelist=("html",)).get_content()
         self.assertIn('<a href="file://', html_part)
+        plain_part = msg.get_body(preferencelist=("plain",)).get_content()
+        self.assertIn("COMPLETE", plain_part)
+
+    def _report_with_logs(self, files: dict[str, str]):
+        tmp = Path(tempfile.mkdtemp()) / "2026-08-22_120000"
+        tmp.mkdir()
+        stage_logs = []
+        for name, content in files.items():
+            (tmp / name).write_text(content, encoding="utf-8")
+            stage_logs.append((name.split("-", 1)[1].rsplit(".", 1)[0], tmp / name))
+        (tmp / "run.log").write_text("INFO | run:main:1 - start\n", encoding="utf-8")
+        rep = RunReport(_fake_runlog(tmp, stage_logs), game_version="2026-08-22")
+        rep.finalize("COMPLETE")
+        return rep
+
+    def test_logs_attached_as_text(self):
+        rep = self._report_with_logs({"01-preflight.log": "INFO | p:v:1 - OK\n",
+                                      "02-parse.log": "ERROR | parse:y:1 - boom\n"})
+        alerts.EmailAlerter(self._cfg(), smtp_factory=FakeSMTP).send(rep)
+        atts = {a.get_filename(): a for a in FakeSMTP.last.sent.iter_attachments()}
+        self.assertEqual(list(atts), ["01-preflight.log", "02-parse.log", "run.log"])
+        self.assertEqual(atts["02-parse.log"].get_content_type(), "text/plain")
+        self.assertIn("boom", atts["02-parse.log"].get_content())
+
+    def test_big_logs_attached_as_one_zip(self):
+        import io
+        import zipfile
+        rep = self._report_with_logs({"02-parse.log": "UNKNOWN_PROPERTY | x\n" * 50})
+        with mock.patch.object(alerts, "_MAX_PLAIN_BYTES", 100):
+            alerts.EmailAlerter(self._cfg(), smtp_factory=FakeSMTP).send(rep)
+        atts = list(FakeSMTP.last.sent.iter_attachments())
+        self.assertEqual(len(atts), 1)
+        self.assertEqual(atts[0].get_filename(), "2026-08-22_120000-logs.zip")
+        with zipfile.ZipFile(io.BytesIO(atts[0].get_content())) as zf:
+            self.assertEqual(sorted(zf.namelist()),
+                             ["2026-08-22_120000/02-parse.log",
+                              "2026-08-22_120000/run.log"])
+
+    def test_huge_logs_sent_without_attachments(self):
+        rep = self._report_with_logs({"02-parse.log": "x\n" * 50})
+        with mock.patch.object(alerts, "_MAX_PLAIN_BYTES", 10), \
+             mock.patch.object(alerts, "_MAX_ZIP_BYTES", 10):
+            ok = alerts.EmailAlerter(self._cfg(), smtp_factory=FakeSMTP).send(rep)
+        self.assertTrue(ok)  # the report still goes out
+        self.assertEqual(list(FakeSMTP.last.sent.iter_attachments()), [])
 
     def test_smtp_error_is_caught(self):
         def boom(host, port):

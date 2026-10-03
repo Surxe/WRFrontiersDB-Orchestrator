@@ -117,6 +117,16 @@ class RunReport:
         return (sum(c.warnings for c in counts), sum(c.errors for c in counts),
                 sum(c.unknown for c in counts))
 
+    def log_files(self) -> list[Path]:
+        """Every log file this run wrote (stage logs in order, then run.log)."""
+        paths = [path for _stage, path in self._runlog.stage_logs]
+        paths.append(self._runlog.run_log)
+        return [Path(p) for p in paths if Path(p).is_file()]
+
+    def run_dir_name(self) -> str:
+        """The run dir's name (its timestamp), used to name the attachments."""
+        return Path(self._runlog.run_dir).name
+
     def hs_command(self) -> str:
         """A copy-paste command to reach this run's logs on the home-server.
 

@@ -93,7 +93,8 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   URI-referenceable log with level-tagged lines.
 - **Run-report email.** After every run — success, stage failure, or preflight
   abort — the orchestrator emails a report: per-step warning/error/unknown-property
-  counts at the top, then `file://` links to every log. Unknown properties (the
+  counts at the top, then `file://` links to every log, with the logs themselves
+  attached (each as text; one zip for a big run; none if too big even zipped). Unknown properties (the
   parser's custom `UNKNOWN_PROPERTY` level: new game data it neither parses nor
   skips) are counted only; warning and error lines are also shown inline. Counts are exact for the loguru steps
   (preflight/export/parse/releases) and a flagged text heuristic for the
