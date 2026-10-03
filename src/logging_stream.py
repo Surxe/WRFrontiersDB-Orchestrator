@@ -103,8 +103,12 @@ def run_streamed(
     stage: str,
     log_path: Path,
     env: dict | None = None,
+    unset_env: tuple[str, ...] = (),
 ) -> int:
     """Run cmd, streaming merged stdout/stderr to console and to log_path.
+
+    ``unset_env`` names variables to withhold from the child (e.g. secrets the
+    orchestrator holds but a stage has no business seeing).
 
     Returns the child's exit code. Never raises on a non-zero exit — the caller
     decides what a non-zero code means (the mapper, for instance, tolerates a
@@ -113,6 +117,8 @@ def run_streamed(
     child_env = os.environ.copy()
     if env:
         child_env.update(env)
+    for key in unset_env:
+        child_env.pop(key, None)
     child_env["PYTHONUNBUFFERED"] = "1"
 
     start = time.time()

@@ -66,8 +66,27 @@ WRFrontiersDB-Site and the WRFrontiers-Discount-Visualizer — vendor as a git
 submodule to stay visually in sync. It is not a pipeline stage the orchestrator
 runs; each consuming site pulls it in at build time.
 
-Out of scope for now: the discount visualizer and the news-research snapshot
-(they have their own cadence; a tighter pipeline there comes later).
+### Discount run
+
+`src/discount.py` is a second, much smaller run: it drives the
+WRFrontiers-News-Scraper's pipeline (preflight -> `scrape` the latest news posts
+-> `watch`: detect a new weekly discount and dispatch the
+WRFrontiers-Discount-Visualizer), each step streamed to its own log like the
+patch-day stages. The scraper owns the logic and stays standard-library only; it
+gets none of the orchestrator's secrets. Dispatch is the scraper's opt-in
+(`WRF_DISPATCH=1`).
+
+It emails the same run report (logs attached, same `SMTP_*` / `EMAIL_TO`
+options), but since it polls several times a day, only when it matters: a new
+discount week, or a failure / any warning or error. A quiet poll sends nothing
+and deletes its own run dir. On the home-server it runs from
+`hs-wrf-discount-watch.{service,timer}` (home-server repo), logging under
+`/srv/dev/wrf/discount-logs`.
+
+```bash
+.venv/bin/python src/discount.py --log-dir /srv/dev/wrf/discount-logs   # dry run
+WRF_DISPATCH=1 .venv/bin/python src/discount.py --log-dir ...           # dispatch
+```
 
 ## Patch day
 

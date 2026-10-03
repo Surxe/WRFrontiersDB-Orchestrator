@@ -95,7 +95,19 @@ def _count_file(stage: str, path: Path) -> StepCount:
 
 
 class RunReport:
-    """Collects a run's outcome and renders the report (plain text + HTML)."""
+    """Collects a run's outcome and renders the report (plain text + HTML).
+
+    This is the patch-day report. Other run kinds (the discount run, see
+    discount_report.py) subclass it and override the class attributes plus the
+    ``facts`` / ``details`` / ``subject`` hooks; the step counts, log links,
+    and the email path (alerts.py) are shared.
+    """
+
+    title = "WRFrontiersDB-Orchestrator run report"
+    # Whether the run has UNKNOWN_PROPERTY lines worth a column (parser runs).
+    track_unknown = True
+    approx_note = ("SITE/SITE-DEPLOY counts are a text scan of npm/astro/gh "
+                   "output, not loguru levels.")
 
     def __init__(self, runlog, *, game_version: str | None = None) -> None:
         self._runlog = runlog
@@ -139,31 +151,44 @@ class RunReport:
 
     def subject(self) -> str:
         version = self.game_version or "unknown"
+        return f"WRFrontiersDB {version} - {self.result}: {self._totals_text()}"
+
+    def facts(self) -> list[tuple[str, str]]:
+        """Label/value lines heading the report, above Result and Totals."""
+        return [("Patch", self.game_version or "unknown")]
+
+    def details(self) -> list[tuple[str, list[str]]]:
+        """Extra (heading, lines) sections shown after the step table."""
+        return []
+
+    def _totals_text(self) -> str:
         warns, errs, unknown = self.totals()
-        return (f"WRFrontiersDB {version} - {self.result}: "
-                f"{warns} warnings, {errs} errors, {unknown} unknown properties")
+        text = f"{warns} warnings, {errs} errors"
+        if self.track_unknown:
+            text += f", {unknown} unknown properties"
+        return text
 
     # -- plain text ------------------------------------------------------------
     def body(self) -> str:
-        version = self.game_version or "unknown"
         counts = self.counts()
-        warns, errs, unknown = self.totals()
+        facts = self.facts() + [("Result", self.result), ("Totals", self._totals_text())]
+        label_w = max(len(label) for label, _value in facts) + 1
 
-        out = [
-            "WRFrontiersDB-Orchestrator run report",
-            f"Patch:  {version}",
-            f"Result: {self.result}",
-            f"Totals: {warns} warnings, {errs} errors, {unknown} unknown properties",
-            "",
-            "Steps reached (warnings / errors / unknown properties):",
-        ]
+        out = [self.title]
+        out += [f"{label + ':':<{label_w}} {value}" for label, value in facts]
+        out += ["", "Steps reached (warnings / errors"
+                + (" / unknown properties):" if self.track_unknown else "):")]
         if counts:
             width = max(len(c.stage) for c in counts)
             for c in counts:
                 flag = " ~approx" if c.approx else ""
-                out.append(f"  {c.stage:<{width}}  {c.warnings}W / {c.errors}E / {c.unknown}U{flag}")
+                unknown = f" / {c.unknown}U" if self.track_unknown else ""
+                out.append(f"  {c.stage:<{width}}  {c.warnings}W / {c.errors}E{unknown}{flag}")
         else:
             out.append("  (no steps ran)")
+
+        for heading, lines in self.details():
+            out += ["", f"{heading}:"] + [f"  {ln}" for ln in lines]
 
         detailed = [c for c in counts if c.lines]
         if detailed:
@@ -182,39 +207,47 @@ class RunReport:
         out.append(f"  {_uri(self._runlog.run_log)}")
 
         if any(c.approx for c in counts):
-            out += ["",
-                    "(~approx: SITE/SITE-DEPLOY counts are a text scan of "
-                    "npm/astro/gh output, not loguru levels.)"]
+            out += ["", f"(~approx: {self.approx_note})"]
         return "\n".join(out) + "\n"
 
     # -- HTML (hyperlinked) ----------------------------------------------------
     def body_html(self) -> str:
-        version = html.escape(self.game_version or "unknown")
         counts = self.counts()
         warns, errs, unknown = self.totals()
 
         p = ['<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;'
              'font-size:14px;line-height:1.5">']
-        p.append("<h2 style='margin:0 0 8px'>WRFrontiersDB-Orchestrator run report</h2>")
-        p.append(f"<p style='margin:0 0 12px'>Patch: <b>{version}</b><br>"
-                 f"Result: <b>{html.escape(self.result)}</b><br>"
-                 f"Totals: <b>{warns}</b> warnings, <b>{errs}</b> errors, "
-                 f"<b>{unknown}</b> unknown properties</p>")
+        p.append(f"<h2 style='margin:0 0 8px'>{html.escape(self.title)}</h2>")
+        totals = f"<b>{warns}</b> warnings, <b>{errs}</b> errors"
+        if self.track_unknown:
+            totals += f", <b>{unknown}</b> unknown properties"
+        facts = [f"{html.escape(label)}: <b>{html.escape(value)}</b>"
+                 for label, value in self.facts() + [("Result", self.result)]]
+        facts.append(f"Totals: {totals}")
+        p.append(f"<p style='margin:0 0 12px'>{'<br>'.join(facts)}</p>")
 
         p.append("<h3 style='margin:12px 0 4px'>Steps reached</h3>")
         if counts:
             p.append("<table cellpadding='4' style='border-collapse:collapse'>")
             p.append("<tr><th align='left'>step</th><th align='right'>warnings</th>"
                      "<th align='right'>errors</th>"
-                     "<th align='right'>unknown properties</th></tr>")
+                     + ("<th align='right'>unknown properties</th>"
+                        if self.track_unknown else "") + "</tr>")
             for c in counts:
                 stage = html.escape(c.stage) + (" <i>~approx</i>" if c.approx else "")
+                unknown = (f"<td align='right'>{c.unknown}</td>"
+                           if self.track_unknown else "")
                 p.append(f"<tr><td>{stage}</td><td align='right'>{c.warnings}</td>"
-                         f"<td align='right'>{c.errors}</td>"
-                         f"<td align='right'>{c.unknown}</td></tr>")
+                         f"<td align='right'>{c.errors}</td>{unknown}</tr>")
             p.append("</table>")
         else:
             p.append("<p>(no steps ran)</p>")
+
+        for heading, lines in self.details():
+            p.append(f"<h3 style='margin:12px 0 4px'>{html.escape(heading)}</h3>")
+            p.append("<ul style='margin:0'>"
+                     + "".join(f"<li>{html.escape(ln)}</li>" for ln in lines)
+                     + "</ul>")
 
         detailed = [c for c in counts if c.lines]
         if detailed:
@@ -245,8 +278,8 @@ class RunReport:
         p.append("</ul>")
 
         if any(c.approx for c in counts):
-            p.append("<p style='color:#666;font-size:12px'>~approx: SITE/SITE-DEPLOY "
-                     "counts are a text scan of npm/astro/gh output, not loguru levels.</p>")
+            p.append("<p style='color:#666;font-size:12px'>~approx: "
+                     f"{html.escape(self.approx_note)}</p>")
         p.append("</div>")
         return "\n".join(p)
 

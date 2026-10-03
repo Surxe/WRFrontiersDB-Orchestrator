@@ -30,6 +30,9 @@ from dotenv import load_dotenv
 # The secret option names, for validation messages.
 SECRET_KEYS = ("STEAM_USERNAME", "STEAM_PASSWORD", "GH_DATA_REPO_PAT")
 
+# The run-report email's secrets (optional: email is off unless all are set).
+EMAIL_SECRET_KEYS = ("SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO")
+
 # Where the ethan-owned secret file is expected to live (documented, not read by
 # dev). Used only for help text.
 CANONICAL_SECRETS_PATH = "~ethan/.config/wrf-orchestrator/secrets.env"

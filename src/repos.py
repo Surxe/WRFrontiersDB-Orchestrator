@@ -34,6 +34,10 @@ class Repos:
     def data_dir(self) -> Path:
         return self.repos_dir / "WRFrontiersDB-Data"
 
+    @property
+    def news_scraper_dir(self) -> Path:
+        return self.repos_dir / "WRFrontiers-News-Scraper"
+
     def venv_python(self, repo_dir: Path) -> Path:
         """The repo's own virtualenv interpreter."""
         return repo_dir / ".venv" / "bin" / "python"
