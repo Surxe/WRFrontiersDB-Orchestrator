@@ -266,6 +266,25 @@ class EmailAlerterTests(unittest.TestCase):
         self.assertFalse(alerter.send(self._report()))  # no raise
 
 
+class SendTestEmailTests(unittest.TestCase):
+    """src/send_test_email.py rebuilds a TEST report from an existing run dir."""
+
+    def test_latest_run_and_stage_logs(self):
+        import send_test_email
+        log_dir = Path(tempfile.mkdtemp())
+        (log_dir / "2026-09-30_220706").mkdir()
+        run_dir = log_dir / "2026-10-01_234331"
+        run_dir.mkdir()
+        for name in ("01-preflight.log", "02-site-deploy.log", "run.log", "notes.txt"):
+            (run_dir / name).write_text("INFO | x\n", encoding="utf-8")
+        self.assertEqual(send_test_email.latest_run_dir(log_dir), run_dir)
+        rep = send_test_email.report_from_run_dir(run_dir)
+        self.assertEqual([c.stage for c in rep.counts()], ["preflight", "site-deploy"])
+        self.assertEqual([p.name for p in rep.log_files()],
+                         ["01-preflight.log", "02-site-deploy.log", "run.log"])
+        self.assertIn("WRFrontiersDB TEST - TEST (from 2026-10-01_234331)", rep.subject())
+
+
 class RunWiringTests(unittest.TestCase):
     """run.main sends the report on both the success and failure exit paths."""
 
