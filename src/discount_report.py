@@ -2,8 +2,8 @@
 
 Same step counts, inline warning/error lines, log links and log attachments as
 the patch-day email (report.RunReport, sent by alerts.send_report); this adds
-what the discount run found: the announced week, its post, and the items handed
-to the Discount-Visualizer.
+what the discount run found: the announced week, its post, the items handed to
+the Discount-Visualizer, and how the visualizer's GitHub Actions run ended.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ class DiscountReport(RunReport):
         super().__init__(runlog)
         # The watch step's `discount-announced` event, once it has run.
         self.announced: dict | None = None
+        # The dispatched visualizer run (stages.discount.VisualizerRun), if followed.
+        self.visualizer = None
 
     def subject(self) -> str:
         week = (self.announced or {}).get("week_id") or "no new week"
@@ -30,11 +32,14 @@ class DiscountReport(RunReport):
         a = self.announced
         if not a:
             return [("Week", "no new week")]
-        return [
+        facts = [
             ("Week", f"{a.get('week') or '?'} (id {a.get('week_id') or '?'})"),
             ("Range", a.get("date_range") or "?"),
             ("Post", f"{a.get('title') or '?'} - {a.get('url') or '?'}"),
         ]
+        if self.visualizer is not None:
+            facts.append(("Visualizer", self.visualizer.describe()))
+        return facts
 
     def details(self) -> list[tuple[str, list[str]]]:
         items = (self.announced or {}).get("items") or []

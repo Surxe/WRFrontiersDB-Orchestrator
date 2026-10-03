@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """WRFrontiersDB-Orchestrator — discount run driver.
 
-preflight -> scrape -> watch, each streamed to a per-stage log, wrapping
-WRFrontiers-News-Scraper's pipeline (scrape the latest news posts; on a new
-weekly discount, dispatch the Discount-Visualizer). Run on a timer several times
-a day (home-server's hs-wrf-discount-watch.service).
+preflight -> scrape -> watch -> visualizer, each streamed to a per-stage log,
+wrapping WRFrontiers-News-Scraper's pipeline (scrape the latest news posts; on a
+new weekly discount, dispatch the Discount-Visualizer), then following the
+dispatched GitHub Actions run to its end so the report says whether the
+visualizer actually mapped and deployed the week. Run on a timer several times a
+day (home-server's hs-wrf-discount-watch.service).
 
 Reporting works like the patch-day run (run.py): the run report, with the logs
 attached, is emailed via alerts.send_report using the same SMTP_* options. The
@@ -23,6 +25,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent
@@ -72,7 +75,8 @@ def main(args: argparse.Namespace) -> int:
 
     rc = 1
     try:
-        rc = _run_discount(repos, runlog, report, args.latest)
+        rc = _run_discount(repos, runlog, report, args.latest,
+                           args.visualizer_timeout)
         return rc
     finally:
         warns, errs, _unknown = report.totals()
@@ -84,7 +88,7 @@ def main(args: argparse.Namespace) -> int:
 
 
 def _run_discount(repos: Repos, runlog: RunLogger, report: DiscountReport,
-                  latest: int) -> int:
+                  latest: int, visualizer_timeout: float) -> int:
     with runlog.stage_sink("preflight"):
         scripts = repos.news_scraper_dir / "scripts"
         missing = [p for p in (scripts / "archive.py", scripts / "watch_discount.py")
@@ -104,6 +108,7 @@ def _run_discount(repos: Repos, runlog: RunLogger, report: DiscountReport,
         return 1
 
     runlog.banner("WATCH")
+    dispatched_since = time.time()
     rc = discount_stage.watch(repos, runlog, latest)
     events = discount_stage.read_events(runlog.stage_logs[-1][1])
     report.announced = next(
@@ -114,6 +119,13 @@ def _run_discount(repos: Repos, runlog: RunLogger, report: DiscountReport,
         return 1
 
     result, ok = outcome(events)
+    if ok and result == "DISPATCHED":
+        runlog.banner("VISUALIZER")
+        vis = discount_stage.follow_visualizer(dispatched_since, runlog,
+                                               timeout=visualizer_timeout)
+        report.visualizer = vis
+        if not vis.ok:
+            result, ok = f"VISUALIZER {(vis.conclusion or vis.status).upper()}", False
     report.finalize(result)
     if not ok:
         logger.error(f"Discount run: {result}")
@@ -138,6 +150,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--latest", type=int, default=3,
         help="How many of the newest news posts to scrape and check (default: 3).",
+    )
+    parser.add_argument(
+        "--visualizer-timeout", type=float, default=1800,
+        help="Seconds to wait for the dispatched visualizer run to finish "
+             "(default: 1800; runs usually take 2-5 minutes).",
     )
     ArgumentWriter().add_arguments(parser)
     sys.exit(main(parser.parse_args()))

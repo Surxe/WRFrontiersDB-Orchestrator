@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Steps whose logs are loguru-formatted (level token leads the line).
-_LOGURU_STAGES = {"preflight", "export", "parse", "releases"}
+_LOGURU_STAGES = {"preflight", "export", "parse", "releases", "visualizer"}
 
 # Loguru file lines look like: "WARNING | module:function:line - message".
 _LOGURU_WARN = re.compile(r"^WARNING\b")

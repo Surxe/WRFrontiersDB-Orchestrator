@@ -71,14 +71,19 @@ runs; each consuming site pulls it in at build time.
 `src/discount.py` is a second, much smaller run: it drives the
 WRFrontiers-News-Scraper's pipeline (preflight -> `scrape` the latest news posts
 -> `watch`: detect a new weekly discount and dispatch the
-WRFrontiers-Discount-Visualizer), each step streamed to its own log like the
-patch-day stages. The scraper owns the logic and stays standard-library only; it
+WRFrontiers-Discount-Visualizer) and then -> `visualizer`: finds the dispatched
+GitHub Actions run and waits for it to finish (`--visualizer-timeout`, default
+30 min), each step streamed to its own log like the patch-day stages. A failed,
+cancelled, timed-out or missing visualizer run fails the discount run, and the
+report names the run, its failed jobs, and any error lines from their logs (e.g.
+an item Jev couldn't map). The scraper owns the logic and stays standard-library only; it
 gets none of the orchestrator's secrets. Dispatch is the scraper's opt-in
 (`WRF_DISPATCH=1`).
 
 It emails the same run report (logs attached, same `SMTP_*` / `EMAIL_TO`
 options), but since it polls several times a day, only when it matters: a new
-discount week, or a failure / any warning or error. A quiet poll sends nothing
+discount week, or a failure / any warning or error. A visualizer run you start
+by hand from GitHub is not followed and sends no email. A quiet poll sends nothing
 and deletes its own run dir. On the home-server it runs from
 `hs-wrf-discount-watch.{service,timer}` (home-server repo), logging under
 `/srv/dev/wrf/discount-logs`.
