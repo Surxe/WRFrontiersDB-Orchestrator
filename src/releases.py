@@ -7,24 +7,31 @@ id appearing in `current/Objects/VirtualBot.json` **is** the release signal (no
 `ProductionStatus` check needed; the Parser gates on the factory preset, which
 agrees 1:1 with `Ready` core modules).
 
-The store *is* the dedup source: `curated/robot_release_dates.json` already lists
-every robot (with `virtual_bot_ref` = `OBJID_VirtualBot::<slug>`). A roster id
-whose ref is already in that file is already recorded, so detection is a pure
-file comparison — **no git diff against the previous patch, no separate state
-file**. For each roster id not yet recorded we either:
+The store *is* the dedup source: `curated/robot_release_dates.json` keys every
+robot by its `virtual_bot_ref` (`OBJID_VirtualBot::<slug>`), in `robots{}` and
+`titans{}`. A roster id whose ref is already a key is already recorded, so
+detection is a pure file comparison — **no git diff against the previous patch,
+no separate state file**. For each roster id we either:
 
-  * backfill the ref onto a pre-recorded entry whose `virtual_bot_ref` is null
-    (a robot the news-scraper logged before it hit the datamined roster — e.g.
-    Angler), filling only the fields still null so hand-curated data is never
-    overwritten; or
-  * append a fresh entry (Mechs -> `robots[]`, Titans -> `titans[]`).
+  * append a fresh entry if its ref is not a key yet (Mechs -> `robots{}`,
+    Titans -> `titans{}`); or
+  * settle a `pending_roster` entry — one hand-recorded from the news before the
+    robot reached the datamined roster (e.g. Angler) — by filling only its
+    still-null sourced fields and clearing the flag, so hand-curated data is
+    never overwritten.
 
 An auto-added entry can only carry what the pipeline can source: the in-house
-version id (`release_date`), the Steam depot `manifest_id`, and the build's UTC
-publish time (`patch_released_at_utc`). Article-derived fields (`release_context`,
-`source_article_ids`) are left null/[] for the news-scraper or a human to fill.
+version id (`release_date`) and the Steam depot `manifest_id`. Article-derived
+fields (`release_context`, `source_article_ids`) are left null/[] for the
+news-scraper or a human to fill.
 
-Publishing the edit is a commit + push to the data repo (`publish_curated`),
+Patch metadata lives once per build in `curated/patch_manifests.json`, keyed by
+manifest GID (`version`, `buildid`, `patch_released_at_utc`); a robot's
+`manifest_id` points into it. `record_patch_manifests` merges in every build the
+pipeline knows about (the probe's GID->version registry plus the build just
+parsed), fill-only, so the box-local registry is published rather than stranded.
+
+Publishing the edits is a commit + push to the data repo (`publish_curated`),
 because the Parser's push reclones a fresh checkout each run — an uncommitted
 local edit would be wiped before it ever reached the remote. That push is the
 only git operation; it is output, not comparison.
@@ -58,8 +65,12 @@ EXIT_ERROR = 1
 
 # Paths within a WRFrontiersDB-Data checkout.
 CURATED_REL = Path("curated") / "robot_release_dates.json"
+PATCHES_REL = Path("curated") / "patch_manifests.json"
 ROSTER_REL = Path("current") / "Objects" / "VirtualBot.json"
 VERSION_REL = Path("current") / "version.txt"
+
+# Per-build fields in curated/patch_manifests.json, in file order.
+PATCH_FIELDS = ("version", "buildid", "patch_released_at_utc")
 
 DATA_REPO_SLUG = "Surxe/WRFrontiersDB-Data"
 
@@ -72,7 +83,7 @@ class ReleasesError(RuntimeError):
 class RecordResult:
     version: str
     new_bots: list[dict] = field(default_factory=list)      # freshly appended entries
-    backfilled: list[dict] = field(default_factory=list)    # pre-recorded entries given a ref
+    backfilled: list[dict] = field(default_factory=list)    # pending_roster entries settled
     orphaned_refs: list[str] = field(default_factory=list)  # recorded refs no longer in roster
     changed: bool = False
 
@@ -83,13 +94,19 @@ class RecordResult:
         return bool(self.new_bots and self.orphaned_refs)
 
 
+@dataclass
+class PatchResult:
+    added: list[str] = field(default_factory=list)   # GIDs newly recorded
+    filled: list[str] = field(default_factory=list)  # recorded GIDs given a still-null field
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.added or self.filled)
+
+
 # --- helpers -----------------------------------------------------------------
 def virtual_bot_ref(bot_id: str) -> str:
     return f"OBJID_VirtualBot::{bot_id}"
-
-
-def _norm_name(name: str) -> str:
-    return (name or "").strip().lower()
 
 
 def _bot_name(bot: dict) -> str:
@@ -124,22 +141,44 @@ def read_version(data_dir: Path) -> str:
         raise ReleasesError(f"version.txt unreadable ({path}): {exc}") from exc
 
 
-def load_curated(data_dir: Path) -> dict:
-    path = Path(data_dir) / CURATED_REL
+def _load_json(path: Path, what: str) -> dict:
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise ReleasesError(f"curated file not found: {path}") from exc
+        raise ReleasesError(f"{what} not found: {path}") from exc
     except (json.JSONDecodeError, OSError) as exc:
-        raise ReleasesError(f"curated file unreadable ({path}): {exc}") from exc
-    if not isinstance(doc, dict) or "robots" not in doc or "titans" not in doc:
-        raise ReleasesError(f"curated file missing robots/titans arrays: {path}")
+        raise ReleasesError(f"{what} unreadable ({path}): {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ReleasesError(f"{what} is not an object: {path}")
+    return doc
+
+
+def _save_json(path: Path, doc: dict) -> None:
+    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def load_curated(data_dir: Path) -> dict:
+    path = Path(data_dir) / CURATED_REL
+    doc = _load_json(path, "curated file")
+    if not all(isinstance(doc.get(k), dict) for k in ("robots", "titans")):
+        raise ReleasesError(f"curated file missing robots/titans objects keyed by ref: {path}")
     return doc
 
 
 def save_curated(data_dir: Path, doc: dict) -> None:
-    path = Path(data_dir) / CURATED_REL
-    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _save_json(Path(data_dir) / CURATED_REL, doc)
+
+
+def load_patch_manifests(data_dir: Path) -> dict:
+    path = Path(data_dir) / PATCHES_REL
+    doc = _load_json(path, "patch manifests file")
+    if not isinstance(doc.get("patches"), dict):
+        raise ReleasesError(f"patch manifests file missing patches object keyed by GID: {path}")
+    return doc
+
+
+def save_patch_manifests(data_dir: Path, doc: dict) -> None:
+    _save_json(Path(data_dir) / PATCHES_REL, doc)
 
 
 def epoch_to_utc_iso(ts) -> str | None:
@@ -152,14 +191,12 @@ def epoch_to_utc_iso(ts) -> str | None:
         return None
 
 
-def _new_entry(name: str, bot_id: str, release_date, manifest_id, patch_released_at_utc) -> dict:
+def _new_entry(name: str, release_date, manifest_id) -> dict:
     """Build a curated entry in the file's field order for an auto-detected release."""
     return {
         "name": name,
-        "virtual_bot_ref": virtual_bot_ref(bot_id),
         "release_date": release_date,
         "manifest_id": manifest_id,
-        "patch_released_at_utc": patch_released_at_utc,
         "pre_launch": False,
         "release_context": None,      # article-derived; not sourceable here
         "source_article_ids": [],     # ditto
@@ -171,77 +208,51 @@ def record_releases(
     data_dir: Path,
     version: str,
     manifest_id: str | None,
-    patch_released_at_utc: str | None,
     *,
     write: bool = True,
 ) -> RecordResult:
-    """Diff the roster against the curated file; append/backfill; optionally save.
+    """Diff the roster against the curated file; append/settle; optionally save.
 
     Console-I/O free — the caller presents the result. Raises ReleasesError if the
     data repo can't be read. Only writes the file when something actually changed.
     """
     roster = read_roster(data_dir)
     doc = load_curated(data_dir)
-    robots: list[dict] = doc["robots"]
-    titans: list[dict] = doc["titans"]
-    entries = robots + titans
-
-    by_ref = {e["virtual_bot_ref"]: e for e in entries if e.get("virtual_bot_ref")}
-    by_name: dict[str, dict] = {}
-    for e in entries:
-        by_name.setdefault(_norm_name(e.get("name", "")), e)
+    robots: dict[str, dict] = doc["robots"]
+    titans: dict[str, dict] = doc["titans"]
+    recorded = {**robots, **titans}
 
     result = RecordResult(version=version)
 
     for bot_id, meta in roster.items():
         ref = virtual_bot_ref(bot_id)
-        if ref in by_ref:
-            continue  # already recorded — the dedup that makes this idempotent
+        entry = recorded.get(ref)
 
-        name = meta["name"]
-        existing = by_name.get(_norm_name(name))
-
-        if existing is not None and not existing.get("virtual_bot_ref"):
-            # Pre-recorded by the news-scraper before it hit the roster (e.g. Angler):
-            # attach the ref and fill only still-null sourced fields (never clobber).
-            existing["virtual_bot_ref"] = ref
-            filled = {"virtual_bot_ref": ref}
-            if existing.get("release_date") is None and version:
-                existing["release_date"] = version
-                filled["release_date"] = version
-            if existing.get("manifest_id") is None and manifest_id:
-                existing["manifest_id"] = manifest_id
-                filled["manifest_id"] = manifest_id
-            if existing.get("patch_released_at_utc") is None and patch_released_at_utc:
-                existing["patch_released_at_utc"] = patch_released_at_utc
-                filled["patch_released_at_utc"] = patch_released_at_utc
-            result.backfilled.append({"id": bot_id, "name": name, "filled": filled})
-            continue
-
-        if existing is not None and existing.get("virtual_bot_ref"):
-            # Name collides with a different, already-recorded robot — never happens
-            # in WRF (names are unique); skip rather than duplicate, and flag it.
-            logger.warning(
-                "roster bot {!r} ({}) name-matches recorded ref {!r}; skipping to avoid "
-                "a duplicate — verify these are not two different robots",
-                name, ref, existing.get("virtual_bot_ref"),
-            )
-            continue
-
-        # Genuinely new robot: append to the right array.
-        entry = _new_entry(name, bot_id, version, manifest_id, patch_released_at_utc)
-        (titans if meta.get("character_type") == "Titan" else robots).append(entry)
-        result.new_bots.append({
-            "id": bot_id, "name": name,
-            "character_type": meta.get("character_type"),
-            "release_date": version, "manifest_id": manifest_id,
-            "patch_released_at_utc": patch_released_at_utc,
-        })
+        if entry is None:
+            # Genuinely new robot: add it under its ref.
+            new = _new_entry(meta["name"], version, manifest_id)
+            (titans if meta.get("character_type") == "Titan" else robots)[ref] = new
+            result.new_bots.append({
+                "id": bot_id, "name": meta["name"],
+                "character_type": meta.get("character_type"),
+                "release_date": version, "manifest_id": manifest_id,
+            })
+        elif entry.get("pending_roster"):
+            # Hand-recorded from the news before it hit the roster (e.g. Angler): it
+            # has now shipped, so fill only still-null sourced fields (never clobber).
+            filled = {}
+            for key, value in (("release_date", version), ("manifest_id", manifest_id)):
+                if entry.get(key) is None and value:
+                    entry[key] = value
+                    filled[key] = value
+            del entry["pending_roster"]
+            result.backfilled.append({"id": bot_id, "name": meta["name"], "filled": filled})
+        # else: already recorded — the dedup that makes this idempotent
 
     roster_refs = {virtual_bot_ref(b) for b in roster}
     result.orphaned_refs = sorted(
-        e["virtual_bot_ref"] for e in entries
-        if e.get("virtual_bot_ref") and e["virtual_bot_ref"] not in roster_refs
+        ref for ref, e in recorded.items()
+        if ref not in roster_refs and not e.get("pending_roster")
     )
 
     result.changed = bool(result.new_bots or result.backfilled)
@@ -251,10 +262,58 @@ def record_releases(
         if isinstance(meta, dict):
             meta["robot_count"] = len(robots)
             meta["titan_count"] = len(titans)
-            meta["robots_with_known_date"] = sum(1 for r in robots if r.get("release_date"))
+            meta["robots_with_known_date"] = sum(1 for r in robots.values() if r.get("release_date"))
             meta["generated"] = date.today().isoformat()
         if write:
             save_curated(data_dir, doc)
+
+    return result
+
+
+def record_patch_manifests(
+    data_dir: Path,
+    builds: dict[str, dict],
+    *,
+    write: bool = True,
+) -> PatchResult:
+    """Merge `builds` ({gid: {version, buildid, patch_released_at_utc}}) into the file.
+
+    Fill-only: a new GID is added; a recorded GID only gains fields still null there.
+    A conflicting non-null value keeps the recorded one and is logged. Only writes
+    the file when something actually changed.
+    """
+    doc = load_patch_manifests(data_dir)
+    patches: dict[str, dict] = doc["patches"]
+    result = PatchResult()
+
+    for gid, fields in builds.items():
+        gid = str(gid)
+        entry = patches.get(gid)
+        if entry is None:
+            patches[gid] = {k: fields.get(k) for k in PATCH_FIELDS}
+            result.added.append(gid)
+            continue
+        for key in PATCH_FIELDS:
+            value = fields.get(key)
+            if value is None or entry.get(key) == value:
+                continue
+            if entry.get(key) is None:
+                entry[key] = value
+                if gid not in result.filled:
+                    result.filled.append(gid)
+            else:
+                logger.warning("patch {} {}: recorded {!r}, build says {!r}; keeping recorded",
+                               gid, key, entry[key], value)
+
+    if result.changed:
+        # Chronological by version id (yyyy-mm-dd[-N] sorts lexically).
+        doc["patches"] = dict(sorted(patches.items(), key=lambda kv: kv[1].get("version") or ""))
+        meta = doc.get("_meta")
+        if isinstance(meta, dict):
+            meta["patch_count"] = len(patches)
+            meta["generated"] = date.today().isoformat()
+        if write:
+            save_patch_manifests(data_dir, doc)
 
     return result
 
@@ -296,7 +355,7 @@ def _git(args: list[str], cwd: Path, pat: str | None = None) -> subprocess.Compl
 
 
 def publish_curated(data_dir: Path, *, pat: str, branch: str, message: str) -> None:
-    """Commit the curated file and push it to the data repo on `branch`.
+    """Commit the curated files and push them to the data repo on `branch`.
 
     Needed because the Parser's push reclones a fresh checkout each run, so an
     uncommitted local edit would be discarded before it ever reached the remote.
@@ -306,10 +365,11 @@ def publish_curated(data_dir: Path, *, pat: str, branch: str, message: str) -> N
     _git(["config", "--local", "user.name", "Orchestrator"], data_dir)
     # Plain URL (the PAT goes in via _git's env): also scrubs a PAT embedded by older versions.
     _git(["remote", "set-url", "origin", f"https://github.com/{DATA_REPO_SLUG}.git"], data_dir)
-    _git(["add", str(CURATED_REL)], data_dir)
-    status = _git(["status", "--porcelain", "--", str(CURATED_REL)], data_dir)
+    paths = [str(rel) for rel in (CURATED_REL, PATCHES_REL) if (data_dir / rel).exists()]
+    _git(["add", *paths], data_dir)
+    status = _git(["status", "--porcelain", "--", *paths], data_dir)
     if not status.stdout.strip():
-        logger.info("curated file unchanged in git; nothing to push")
+        logger.info("curated files unchanged in git; nothing to push")
         return
     _git(["commit", "-m", message], data_dir)
     _git(["push", "origin", branch], data_dir, pat=pat)
@@ -333,7 +393,8 @@ def emit(event: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Record newly-released WRF robots into the data repo's curated file.",
+        description="Record newly-released WRF robots (and this build's patch manifest) "
+                    "into the data repo's curated files.",
     )
     parser.add_argument(
         "--data-dir",
@@ -342,18 +403,25 @@ def main(argv: list[str] | None = None) -> int:
         help="WRFrontiersDB-Data checkout (default: /srv/dev/repos/WRFrontiersDB-Data or $WRF_DATA_DIR).",
     )
     parser.add_argument("--version", help="in-house version id (release_date); default: the checkout's version.txt")
-    parser.add_argument("--manifest-id", help="Steam depot manifest GID for this build (optional).")
+    parser.add_argument("--manifest-id", help="Steam depot manifest GID for this build (optional; "
+                        "also records it in patch_manifests.json).")
+    parser.add_argument("--buildid", help="Steam buildid for this build (optional).")
     parser.add_argument("--patch-utc", help="build publish time, e.g. 2026-09-15T07:16:00Z (optional).")
-    parser.add_argument("--no-write", action="store_true", help="detect only; do not modify the curated file.")
+    parser.add_argument("--no-write", action="store_true", help="detect only; do not modify the curated files.")
     args = parser.parse_args(argv)
 
     _configure_logging()
 
     try:
         version = args.version or read_version(args.data_dir)
-        result = record_releases(
-            args.data_dir, version, args.manifest_id, args.patch_utc, write=not args.no_write,
-        )
+        result = record_releases(args.data_dir, version, args.manifest_id, write=not args.no_write)
+        patches = PatchResult()
+        if args.manifest_id:
+            build = {"version": version, "buildid": args.buildid,
+                     "patch_released_at_utc": args.patch_utc}
+            patches = record_patch_manifests(
+                args.data_dir, {args.manifest_id: build}, write=not args.no_write,
+            )
     except ReleasesError as exc:
         logger.error("recording failed, nothing changed: {}", exc)
         emit({"event": "releases-error", "error": str(exc)})
@@ -364,11 +432,14 @@ def main(argv: list[str] | None = None) -> int:
                        "likely a slug rename; verify)", result.orphaned_refs)
     for b in result.backfilled:
         logger.info("backfilled {} ({}): {}", b["name"], b["id"], b["filled"])
+    if patches.changed:
+        logger.info("patch manifests: added {}, filled {}", patches.added, patches.filled)
 
     if not result.new_bots:
         logger.info("no new robots (curated file already lists the roster; version {})", result.version)
         emit({"event": "no-change", "version": result.version,
-              "backfilled": result.backfilled, "orphaned_refs": result.orphaned_refs})
+              "backfilled": result.backfilled, "orphaned_refs": result.orphaned_refs,
+              "patches_added": patches.added})
         return EXIT_NO_CHANGE
 
     names = ", ".join(f"{b['name']} ({b['id']})" for b in result.new_bots)
@@ -377,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
     emit({"event": "robots-released", "version": result.version,
           "suspected_rename": result.suspected_rename,
           "new_bots": result.new_bots, "backfilled": result.backfilled,
-          "orphaned_refs": result.orphaned_refs})
+          "orphaned_refs": result.orphaned_refs, "patches_added": patches.added})
     return EXIT_NEW_RELEASE
 
 
