@@ -10,7 +10,7 @@ the machine's own instructions say to develop the Parser (possibly that same
 directory).
 
 ```
-probe (every 20 min) -> wrf-orchestrator@<version> -> EXPORT -> PARSE+PUSH -> RELEASES -> SITE -> SITE-DEPLOY
+probe (every 20 min) -> wrf-orchestrator@<version> -> EXPORT -> PARSE+PUSH -> INDEX -> SITE -> SITE-DEPLOY
                                                                  |
                                          warnings/errors are logged, data is still published
                                                                  v
@@ -159,7 +159,7 @@ the dev checkout to `main` (deleting the patch branch), fast-forwards the
 pipeline's Parser checkout and syncs its venv, and re-runs
 `sudo systemctl start wrf-orchestrator@<version>.service`. Nothing is re-downloaded
 or re-exported, because without `--force-*` those steps skip output that
-already exists. The run re-parses, re-pushes `current/`, re-runs RELEASES
+already exists. The run re-parses, re-pushes `current/`, re-runs INDEX
 (idempotent) and rebuilds/deploys the site. It then groups the new run's parse
 log against the dev checkout's `decisions/<version>.json`. That run is the
 newest completed parse, so groups it no longer produces are confirmed `done`, and

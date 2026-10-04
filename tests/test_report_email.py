@@ -395,7 +395,7 @@ class RunWiringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             argv = [
                 "--should-export", "false", "--should-parse", "false",
-                "--should-push-data", "false", "--should-detect-releases", "false",
+                "--should-push-data", "false", "--should-build-index", "false",
             ] + extra_argv + [
                 "--game-version", "2026-08-22", "--assume-manifest-confirmed", "true",
                 "--log-dir", tmp,

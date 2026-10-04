@@ -9,8 +9,8 @@ kept out of the repo (and out of `dev`'s reach).
 ## Pipeline
 
 ```
-preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ RELEASES ──▶ SITE
-             (Exporter)  (Parser)             (roster diff) (Astro build)
+preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ INDEX ──▶ SITE ──▶ SITE-DEPLOY
+             (Exporter)  (Parser)             (Data)    (Astro)  (Site CI)
 ```
 
 | Stage | Repo | What it does |
@@ -18,54 +18,48 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ RELEASES �
 | EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
-| RELEASES | (this repo) | Diff the pushed `VirtualBot.json` roster vs `curated/robot_release_dates.json` → record newly-released robots + this patch in `curated/patch_manifests.json` (commit + push) |
-| SITE | WRFrontiersDB-Site | `npm run build` against the updated data repo |
+| INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, newly-released robots, patch manifests (commit + push) |
+| SITE | WRFrontiersDB-Site | `npm run sync:slugs` + `npm run build` against the updated data repo |
+| SITE-DEPLOY | WRFrontiersDB-Site | Dispatch the Site's CI workflow (builds + publishes GitHub Pages) and wait for it |
 
-### RELEASES — newly-released robot detection
+### INDEX: the data repo's derived files
 
-A robot is a `VirtualBot` in the published data iff its modules are used by a
-factory preset, and the studio only ships an obtainable robot with one — so a new
-id in `current/Objects/VirtualBot.json` **is** the release signal (no
-`ProductionStatus` check needed; the Parser gates on the preset, which agrees 1:1
-with `Ready` core modules).
+The data repo owns the logic (`tools/wrfdb_data`, standard library only, with its
+own tests); this stage imports it from the freshly pushed checkout, feeds it what
+only this box knows, logs the results to its `index` step log, and commits + pushes
+`index/`. See the data repo's README for what each file holds.
 
-The **store is the dedup source**: the data repo's
-`curated/robot_release_dates.json` keys every robot by
-`virtual_bot_ref = OBJID_VirtualBot::<slug>` (`robots{}` and `titans{}`). A roster
-id whose ref is already a key is already recorded, so detection is a pure file
-comparison — **no git diff against the previous patch and no separate state
-file**. For each roster id the stage (`src/releases.py`) either:
+- **`index/slug_map.json`** (object id -> page slug): always rebuilt. The Site, the
+  Discord bot and any other consumer link to pages through it. Unreadable data or
+  a slug collision fails the stage, so SITE / SITE-DEPLOY never publish against a
+  broken map; an object that should have a page but got no slug is a warning.
+- **`index/robot_release_dates.json`**: a new id in `current/Objects/VirtualBot.json`
+  is a new robot. It is recorded with what the pipeline can source: `release_date`
+  (the in-house version id) and `manifest_id` (`data/steam-download/manifest.txt`).
+  A `pending_roster` entry (recorded by hand from the news) is settled fill-only. A
+  recorded robot leaving the roster the same run a new one appears is flagged as a
+  suspected rename.
+- **`index/patch_manifests.json`**: every build known offline is merged in,
+  fill-only: the probe's GID->version registry (`data/version_registry.json`), plus
+  `buildid` / `timeupdated` from its state file for the latest GID, plus the
+  manifest just built. No live Steam lookup.
+- Release dates and patch manifests are advisory: a failure there is logged as an
+  error but doesn't fail the pipeline.
+- **Publish:** one commit for `index/`, only when something changed. The Parser's
+  push reclones a fresh checkout each run, so an uncommitted edit would be wiped.
+  It runs only when `--should-push-data` is on and a PAT is present; a failed push
+  fails the stage, because the Site's CI reads the slug map from the data repo's
+  `main`.
+- **By hand:** `PYTHONPATH=tools python3 -m wrfdb_data slug-map|releases --no-write`
+  in the data checkout.
 
-- **appends** a new entry when its ref is not a key yet (Mechs -> `robots{}`,
-  Titans -> `titans{}`); or
-- **settles** a `pending_roster: true` entry (hand-recorded from the news before
-  the robot hit the roster, keyed by its expected ref), filling only still-null
-  fields and clearing the flag so hand-curated data is never overwritten.
+### SITE-DEPLOY: keeping the Site in step with the data
 
-An auto-added entry carries only what the pipeline can source: `release_date` (the
-in-house version id) and `manifest_id` (`data/steam-download/manifest.txt`).
-`release_context` and `source_article_ids` are left for the news-scraper / a
-human. A patch that brings no new robot leaves this file untouched.
-
-**Patch manifests:** per-build metadata lives once in the data repo's
-`curated/patch_manifests.json`, keyed by manifest GID: `version`, `buildid`, and
-`patch_released_at_utc`. A robot's `manifest_id` points into it. Each run merges in
-every build known offline — the probe's GID->version registry
-(`data/version_registry.json`), plus `buildid` / `timeupdated` from its state file
-for the latest GID, plus the manifest just built — fill-only, so the box-local
-registry is published instead of stranded on one box. No live Steam lookup.
-
-- **Publish:** the edits are committed + pushed to the data repo. The Parser's push
-  reclones a fresh checkout each run, so an uncommitted local edit would be wiped
-  — this push is the only git operation, and it is output, not comparison. It runs
-  only when `--should-push-data` is on and a PAT is present.
-- **Standalone:** `.venv/bin/python src/releases.py` (`--no-write` to detect only;
-  `--manifest-id` [`--buildid`, `--patch-utc`] also records that build's patch
-  manifest; exit `20` = new robot, `0` = none, `1` = error).
-- **Rename guard:** the id is `slugify(<localized name>)`, so a rename is rare; if
-  a recorded ref's slug leaves the roster the same run a new id appears, the new
-  bot is flagged `suspected_rename` for a human to confirm (WRF does not retire
-  robots). Relic variants are distinct ids and are recorded as ordinary new robots.
+Consumers link to a page as soon as its slug is in the pushed slug map, so a Site
+that isn't redeployed leaves links pointing at pages that don't exist yet. After
+dispatching the Site's `ci.yaml`, the stage follows that run (its own `site-ci`
+step log) and fails if it fails, is cancelled, times out (20 min) or can't be
+found; the run report names the run, its failed jobs and any error lines.
 
 The SITE build resolves its styling from **WRFrontiersDB-Design**, the shared
 design system (tokens + self-hosted brand font) that both front-ends —
@@ -119,7 +113,7 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   console *and* teed to `LOG_DIR/<run-timestamp>/<NN-stage>.log`, with children
   run under `PYTHONUNBUFFERED=1` so nothing is swallowed by block buffering (the
   old "it pauses, only the .log has output" problem). The orchestrator's own
-  in-process steps (preflight, RELEASES, banners) log through loguru — to an
+  in-process steps (preflight, INDEX, site-ci, banners) log through loguru — to an
   aggregate `run.log` and their own `NN-<step>.log` — so every step has a
   URI-referenceable log with level-tagged lines.
 - **Run-report email.** After every run — success, stage failure, or preflight
@@ -132,7 +126,7 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   groups its log (read-only, `--no-decisions`) and the email lists each group once
   (kind, count, title, NEW vs the last completed parse; group count in the subject),
   attaching the full grouped report as `parse-warnings.md` from the run dir. Counts are exact for the loguru steps
-  (preflight/export/parse/releases) and a flagged text heuristic for the
+  (preflight/export/parse/index/site-ci) and a flagged text heuristic for the
   npm/astro/gh SITE steps. Email is enabled only when `SMTP_USER`,
   `SMTP_PASSWORD`, and `EMAIL_TO` are all set (see
   [Email report](#email-report)); otherwise the report is just logged. These are
@@ -365,15 +359,15 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--should-push-data`
 
-* **SHOULD_DETECT_RELEASES** - Diff the pushed data repo's VirtualBot roster against curated/robot_release_dates.json to detect newly-released robots, record them there (version id + manifest id) and the patch in curated/patch_manifests.json, and commit/push both files. Reads the data repo, so it wants parse/push to have run first.
+* **SHOULD_BUILD_INDEX** - Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: the slug map (index/slug_map.json), newly-released robots (index/robot_release_dates.json, version id + manifest id) and this patch (index/patch_manifests.json); then commit/push index/. Reads the data repo, so it wants parse/push to have run first.
   - Default: `"false"`
-  - Command line: `--should-detect-releases`
+  - Command line: `--should-build-index`
 
-* **SHOULD_BUILD_SITE** - Build the Astro site (npm run build:slugs + npm run build) locally against the updated data repo. A pre-flight that catches build breaks before SHOULD_DEPLOY_SITE spends CI minutes; does not deploy.
+* **SHOULD_BUILD_SITE** - Build the Astro site (npm run sync:slugs + npm run build) locally against the updated data repo. A pre-flight that catches build breaks before SHOULD_DEPLOY_SITE spends CI minutes; does not deploy.
   - Default: `"false"`
   - Command line: `--should-build-site`
 
-* **SHOULD_DEPLOY_SITE** - Deploy the site: dispatch WRFrontiersDB-Site's CI workflow (ci.yaml, whose deploy job publishes GitHub Pages) on its main branch via `gh workflow run`, so CI rebuilds and publishes against the freshly-pushed data. Fires immediately when on (no dry-run gate); needs `gh` authed with Actions-dispatch rights on Surxe/WRFrontiersDB-Site. Runs after SITE, so a local build break stops the pipeline before this dispatches.
+* **SHOULD_DEPLOY_SITE** - Deploy the site: dispatch WRFrontiersDB-Site's CI workflow (ci.yaml, whose deploy job publishes GitHub Pages) on its main branch via `gh workflow run`, so CI rebuilds and publishes against the freshly-pushed data. Fires immediately when on (no dry-run gate); needs `gh` authed with Actions-dispatch rights on Surxe/WRFrontiersDB-Site. Runs after SITE, so a local build break stops the pipeline before this dispatches. Then waits for the CI run and fails if it fails or times out, so a Site left behind the data is reported.
   - Default: `"false"`
   - Command line: `--should-deploy-site`
 

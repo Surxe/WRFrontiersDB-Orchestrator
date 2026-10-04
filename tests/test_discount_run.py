@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
 import discount  # noqa: E402
+import gh_runs  # noqa: E402
 from discount_report import DiscountReport  # noqa: E402
 from optionsconfig import ArgumentWriter  # noqa: E402
 from stages import discount as discount_stage  # noqa: E402
@@ -96,7 +97,7 @@ class FollowVisualizerTests(unittest.TestCase):
         new = {"databaseId": 2, "createdAt": self._iso(self.now), "url": "u2"}
         jobs = [{"name": "map", "conclusion": "failure",
                  "steps": [{"name": "Run Orchestrator Pipeline", "conclusion": "failure"}]}]
-        with mock.patch.object(discount_stage.subprocess, "run",
+        with mock.patch.object(gh_runs.subprocess, "run",
                                side_effect=OSError("no gh")):
             res = self._follow([[new]], [{"status": "completed",
                                           "conclusion": "failure", "jobs": jobs}])
