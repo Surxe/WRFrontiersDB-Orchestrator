@@ -6,6 +6,7 @@ No external processes run: `run_streamed` is stubbed with a recorder, so npm and
     short-circuits if install or slugs fail;
   * site_deploy.run dispatches the right `gh workflow run` command, then follows
     the CI run and fails when it doesn't succeed;
+  * a successful deploy (only) is recorded in the deploy state file;
   * run.main sequences SITE-DEPLOY after SITE and skips it when a build breaks;
   * --patch-day enables the deploy;
   * preflight fails fast when gh is missing.
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import sys
 import tempfile
 import unittest
@@ -91,12 +93,38 @@ class SiteStageUnitTests(unittest.TestCase):
 
 
 class SiteDeployUnitTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.state_file = Path(tmp.name) / "data" / "site_deploy_state.json"
+        patcher = mock.patch.object(site_deploy_stage, "STATE_FILE", self.state_file)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _deploy(self, rec, conclusion="success"):
         follow = FakeFollow(conclusion)
         with mock.patch.object(site_deploy_stage, "run_streamed", rec), \
              mock.patch.object(site_deploy_stage, "follow", follow):
             rc = site_deploy_stage.run(SimpleNamespace(), _fake_repos(), "2026-08-22", _fake_runlog())
         return rc, follow
+
+    def test_success_records_the_deployed_run(self):
+        rc, _follow = self._deploy(Recorder())
+        self.assertEqual(rc, 0)
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        self.assertEqual(state["site_run_id"], "1")
+        self.assertEqual(state["site_run_url"], "https://example.invalid/run/1")
+        self.assertEqual(state["game_version"], "2026-08-22")
+        self.assertTrue(state["deployed_at_utc"].endswith("Z"))
+
+    def test_failed_ci_run_is_not_recorded(self):
+        self._deploy(Recorder(), conclusion="failure")
+        self.assertFalse(self.state_file.exists())
+
+    def test_unwritable_state_fails_the_stage(self):
+        self.state_file.parent.parent.joinpath("data").write_text("not a dir")
+        rc, _follow = self._deploy(Recorder())
+        self.assertEqual(rc, 1)
 
     def test_dispatch_command_then_follows_ci(self):
         rec = Recorder()
@@ -168,7 +196,8 @@ class RunWiringTests(unittest.TestCase):
                  mock.patch.object(run.Repos, "prune_old_versions", lambda *a, **k: None), \
                  mock.patch.object(site_stage, "run_streamed", rec), \
                  mock.patch.object(site_deploy_stage, "run_streamed", rec), \
-                 mock.patch.object(site_deploy_stage, "follow", FakeFollow("success")):
+                 mock.patch.object(site_deploy_stage, "follow", FakeFollow("success")), \
+                 mock.patch.object(site_deploy_stage, "STATE_FILE", Path(tmp) / "deploy_state.json"):
                 rc = run.main(args)
         self.assertEqual(rc, expect_rc)
         return rec
@@ -211,8 +240,8 @@ class FakeFollow:
 
     def __call__(self, repo, workflow, since, **kwargs):
         self.calls.append((repo, workflow))
-        return gh_runs.WorkflowRun(url="https://example.invalid/run/1", status="completed",
-                                   conclusion=self.conclusion)
+        return gh_runs.WorkflowRun(url="https://example.invalid/run/1", run_id="1",
+                                   status="completed", conclusion=self.conclusion)
 
 
 def _fake_repos() -> Repos:
