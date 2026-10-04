@@ -61,6 +61,11 @@ dispatching the Site's `ci.yaml`, the stage follows that run (its own `site-ci`
 step log) and fails if it fails, is cancelled, times out (20 min) or can't be
 found; the run report names the run, its failed jobs and any error lines.
 
+A successful deploy is recorded in `data/site_deploy_state.json` (the CI run's id
+and URL, the game version, the time). Consumers of the Site's build outputs watch
+it: the Discord bot re-fetches the Site's `/meta_descriptions.json` once per new
+deploy, and checks that the JSON's `build_id` is that run (not a stale CDN copy).
+
 The SITE build resolves its styling from **WRFrontiersDB-Design**, the shared
 design system (tokens + self-hosted brand font) that both front-ends —
 WRFrontiersDB-Site and the WRFrontiers-Discount-Visualizer — vendor as a git

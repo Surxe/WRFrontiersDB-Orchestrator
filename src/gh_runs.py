@@ -28,6 +28,7 @@ _MAX_FAILED_LINES = 10
 @dataclass
 class WorkflowRun:
     url: str | None = None
+    run_id: str | None = None
     status: str = "not found"      # gh status; "not found" / "timed out" are ours
     conclusion: str | None = None  # success / failure / cancelled / ...
 
@@ -82,6 +83,7 @@ def follow_dispatched_run(repo: str, workflow: str, since: float, *, label: str,
             logger.error(f"No {workflow} run found on {repo} after the dispatch.")
             return result
         run_id = str(run["databaseId"])
+        result.run_id = run_id
         result.url = run["url"]
         logger.info(f"Following {label} {result.url}")
 
