@@ -209,17 +209,17 @@ OPTIONS_SCHEMA = {
         "section": "Stages",
         "help": "Push the parsed data to the data repo (implies parse output exists).",
     },
-    "SHOULD_DETECT_RELEASES": {
-        "env": "SHOULD_DETECT_RELEASES",
-        "arg": "--should-detect-releases",
+    "SHOULD_BUILD_INDEX": {
+        "env": "SHOULD_BUILD_INDEX",
+        "arg": "--should-build-index",
         "type": bool,
         "default": False,
         "section": "Stages",
-        "help": "Diff the pushed data repo's VirtualBot roster against "
-                "curated/robot_release_dates.json to detect newly-released robots, "
-                "record them there (version id + manifest id) and the patch in "
-                "curated/patch_manifests.json, and commit/push both files. Reads "
-                "the data repo, so it wants parse/push to have run first.",
+        "help": "Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: "
+                "the slug map (index/slug_map.json), newly-released robots "
+                "(index/robot_release_dates.json, version id + manifest id) and this "
+                "patch (index/patch_manifests.json); then commit/push index/. Reads the "
+                "data repo, so it wants parse/push to have run first.",
     },
     "SHOULD_BUILD_SITE": {
         "env": "SHOULD_BUILD_SITE",
@@ -227,7 +227,7 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": False,
         "section": "Stages",
-        "help": "Build the Astro site (npm run build:slugs + npm run build) locally "
+        "help": "Build the Astro site (npm run sync:slugs + npm run build) locally "
                 "against the updated data repo. A pre-flight that catches build "
                 "breaks before SHOULD_DEPLOY_SITE spends CI minutes; does not deploy.",
     },
@@ -243,7 +243,8 @@ OPTIONS_SCHEMA = {
                 "and publishes against the freshly-pushed data. Fires immediately when "
                 "on (no dry-run gate); needs `gh` authed with Actions-dispatch rights "
                 "on Surxe/WRFrontiersDB-Site. Runs after SITE, so a local build break "
-                "stops the pipeline before this dispatches.",
+                "stops the pipeline before this dispatches. Then waits for the CI run and "
+                "fails if it fails or times out, so a Site left behind the data is reported.",
     },
 
     # -------------------------------------------------- Exporter sub-steps (fwd)

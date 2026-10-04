@@ -2,9 +2,10 @@
 
 No external processes run: `run_streamed` is stubbed with a recorder, so npm and
 `gh` are never invoked (e2e is exercised separately). These cover the wiring:
-  * site.run runs `npm ci` before `build:slugs` before `build`, and
+  * site.run runs `npm ci` before `sync:slugs` before `build`, and
     short-circuits if install or slugs fail;
-  * site_deploy.run dispatches the right `gh workflow run` command;
+  * site_deploy.run dispatches the right `gh workflow run` command, then follows
+    the CI run and fails when it doesn't succeed;
   * run.main sequences SITE-DEPLOY after SITE and skips it when a build breaks;
   * --patch-day enables the deploy;
   * preflight fails fast when gh is missing.
@@ -15,6 +16,7 @@ Run: .venv/bin/python -m unittest discover -s tests -v
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 import tempfile
 import unittest
@@ -28,6 +30,7 @@ SRC_DIR = ROOT_DIR / "src"
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
+import gh_runs  # noqa: E402
 import preflight  # noqa: E402
 import run  # noqa: E402
 from optionsconfig import ArgumentWriter  # noqa: E402
@@ -69,7 +72,7 @@ class SiteStageUnitTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(rec.stages, ["site-install", "site-slugs", "site"])
         self.assertEqual(rec.calls[0][1], ["npm", "ci"])
-        self.assertEqual(rec.calls[1][1], ["npm", "run", "build:slugs"])
+        self.assertEqual(rec.calls[1][1], ["npm", "run", "sync:slugs"])
         self.assertEqual(rec.calls[2][1], ["npm", "run", "build"])
 
     def test_slugs_and_build_skipped_when_install_fails(self):
@@ -88,10 +91,16 @@ class SiteStageUnitTests(unittest.TestCase):
 
 
 class SiteDeployUnitTests(unittest.TestCase):
-    def test_dispatch_command(self):
-        rec = Recorder()
-        with mock.patch.object(site_deploy_stage, "run_streamed", rec):
+    def _deploy(self, rec, conclusion="success"):
+        follow = FakeFollow(conclusion)
+        with mock.patch.object(site_deploy_stage, "run_streamed", rec), \
+             mock.patch.object(site_deploy_stage, "follow", follow):
             rc = site_deploy_stage.run(SimpleNamespace(), _fake_repos(), "2026-08-22", _fake_runlog())
+        return rc, follow
+
+    def test_dispatch_command_then_follows_ci(self):
+        rec = Recorder()
+        rc, follow = self._deploy(rec)
         self.assertEqual(rc, 0)
         self.assertEqual(rec.stages, ["site-deploy"])
         self.assertEqual(
@@ -99,6 +108,16 @@ class SiteDeployUnitTests(unittest.TestCase):
             ["gh", "workflow", "run", "ci.yaml", "-R",
              "Surxe/WRFrontiersDB-Site", "--ref", "main"],
         )
+        self.assertEqual(follow.calls, [("Surxe/WRFrontiersDB-Site", "ci.yaml")])
+
+    def test_failed_ci_run_fails_the_stage(self):
+        rc, _follow = self._deploy(Recorder(), conclusion="failure")
+        self.assertEqual(rc, 1)
+
+    def test_failed_dispatch_is_not_followed(self):
+        rc, follow = self._deploy(Recorder(rc_by_stage={"site-deploy": 4}))
+        self.assertEqual(rc, 4)
+        self.assertEqual(follow.calls, [])
 
     def test_targets_main_ref(self):
         self.assertEqual(site_deploy_stage.SITE_DEPLOY_REF, "main")
@@ -138,7 +157,7 @@ class RunWiringTests(unittest.TestCase):
                 "--should-export", "false",
                 "--should-parse", "false",
                 "--should-push-data", "false",
-                "--should-detect-releases", "false",
+                "--should-build-index", "false",
             ] + extra_argv + [
                 "--game-version", "2026-08-22",
                 "--assume-manifest-confirmed", "true",
@@ -148,7 +167,8 @@ class RunWiringTests(unittest.TestCase):
             with mock.patch.object(run.preflight, "validate", lambda *a, **k: None), \
                  mock.patch.object(run.Repos, "prune_old_versions", lambda *a, **k: None), \
                  mock.patch.object(site_stage, "run_streamed", rec), \
-                 mock.patch.object(site_deploy_stage, "run_streamed", rec):
+                 mock.patch.object(site_deploy_stage, "run_streamed", rec), \
+                 mock.patch.object(site_deploy_stage, "follow", FakeFollow("success")):
                 rc = run.main(args)
         self.assertEqual(rc, expect_rc)
         return rec
@@ -182,12 +202,26 @@ class PreflightDeployGateTests(unittest.TestCase):
 
 
 # --- small fakes ---------------------------------------------------------
+class FakeFollow:
+    """Stand-in for gh_runs.follow_dispatched_run: records the run it was asked to follow."""
+
+    def __init__(self, conclusion: str) -> None:
+        self.conclusion = conclusion
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, repo, workflow, since, **kwargs):
+        self.calls.append((repo, workflow))
+        return gh_runs.WorkflowRun(url="https://example.invalid/run/1", status="completed",
+                                   conclusion=self.conclusion)
+
+
 def _fake_repos() -> Repos:
     return Repos(wrf_root=Path("/tmp"), repos_dir=Path("/tmp"))
 
 
 def _fake_runlog():
-    return SimpleNamespace(stage_log_path=lambda stage: Path("/tmp") / f"{stage}.log")
+    return SimpleNamespace(stage_log_path=lambda stage: Path("/tmp") / f"{stage}.log",
+                           stage_sink=lambda stage: contextlib.nullcontext(Path("/tmp") / f"{stage}.log"))
 
 
 if __name__ == "__main__":

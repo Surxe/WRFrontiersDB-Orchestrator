@@ -47,6 +47,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -167,6 +168,16 @@ def save_state(path: Path, gid: str, buildid, timeupdated) -> None:
         "checked_at": int(time.time()),
     }
     path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def epoch_to_utc_iso(ts) -> str | None:
+    """Steam `timeupdated` (epoch seconds) -> '2026-09-15T07:16:00Z', or None."""
+    if ts is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def emit(event: dict) -> None:

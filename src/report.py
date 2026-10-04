@@ -19,7 +19,7 @@ self-contained: it stays useful even if the log files are later moved or cleaned
 Two count strategies, because not every step logs the same way:
 
 * the orchestrator's own steps and the Python sub-repos (preflight, export,
-  parse, releases) log through loguru, whose lines start with the level token
+  parse, index, site-ci) log through loguru, whose lines start with the level token
   (``WARNING | ...``) — counted exactly. The parser logs every unknown property
   (new game data it neither parses nor skips) at its custom ``UNKNOWN_PROPERTY``
   level; those are counted separately and not shown inline, since one patch can
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Steps whose logs are loguru-formatted (level token leads the line).
-_LOGURU_STAGES = {"preflight", "export", "parse", "releases", "visualizer"}
+_LOGURU_STAGES = {"preflight", "export", "parse", "index", "site-ci", "visualizer"}
 
 # Loguru file lines look like: "WARNING | module:function:line - message".
 _LOGURU_WARN = re.compile(r"^WARNING\b")

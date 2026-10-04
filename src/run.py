@@ -35,8 +35,8 @@ from logging_stream import RunLogger  # noqa: E402
 from report import RunReport  # noqa: E402
 from repos import Repos  # noqa: E402
 from stages import export as export_stage  # noqa: E402
+from stages import index as index_stage  # noqa: E402
 from stages import parse as parse_stage  # noqa: E402
-from stages import releases as releases_stage  # noqa: E402
 from stages import site as site_stage  # noqa: E402
 from stages import site_deploy as site_deploy_stage  # noqa: E402
 
@@ -50,7 +50,7 @@ _PATCH_DAY_FLAGS = (
     "should_export",
     "should_parse",
     "should_push_data",
-    "should_detect_releases",
+    "should_build_index",
     "should_build_site",
     "should_deploy_site",
     "should_download_dependencies",
@@ -136,7 +136,7 @@ def _run_pipeline(options, repos: Repos, runlog: RunLogger, report: RunReport) -
     stages = [
         ("EXPORT", options.should_export, export_stage.run),
         ("PARSE", options.should_parse or options.should_push_data, parse_stage.run),
-        ("RELEASES", options.should_detect_releases, releases_stage.run),
+        ("INDEX", options.should_build_index, index_stage.run),
         ("SITE", options.should_build_site, site_stage.run),
         ("SITE-DEPLOY", options.should_deploy_site, site_deploy_stage.run),
     ]

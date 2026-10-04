@@ -8,9 +8,9 @@ the checkout's node_modules is otherwise stale, and the build fails to resolve
 the new import (CI installs deps every run, so it never hit this). `npm ci` is
 lockfile-exact and matches the committed package-lock.json.
 
-`npm run build` does NOT chain slug generation, and the build errors without it,
-so we run `build:slugs` next — exactly what CI does. The generated slug output
-is a build artifact and is not committed (CI regenerates it too).
+`npm run build` does NOT chain the slug map, and the build errors without it,
+so we run `sync:slugs` next, exactly what CI does: it copies the data repo's
+`index/slug_map.json` (rebuilt by the INDEX stage) into the Site's `public/`.
 
 This is a local pre-flight: a passing build here is the gate before SITE-DEPLOY
 dispatches the Site CI/Pages workflow, so a build break stops the pipeline cheaply.
@@ -33,7 +33,7 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         return rc
 
     rc = run_streamed(
-        ["npm", "run", "build:slugs"],
+        ["npm", "run", "sync:slugs"],
         cwd=repos.site_dir,
         stage="site-slugs",
         log_path=runlog.stage_log_path("site-slugs"),
