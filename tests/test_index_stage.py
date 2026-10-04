@@ -21,6 +21,8 @@ SRC_DIR = ROOT_DIR / "src"
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
+from loguru import logger  # noqa: E402
+
 import data_repo  # noqa: E402
 from repos import Repos  # noqa: E402
 from stages import index as index_stage  # noqa: E402
@@ -30,13 +32,19 @@ class FakeDataRepoError(RuntimeError):
     pass
 
 
-def _fake_tools(*, slugs=None, releases_error=False, new_bots=()):
+def _fake_tools(*, slugs=None, nicks=None, releases_error=False, new_bots=()):
     slugs = slugs or SimpleNamespace(slug_map={"a": "a"}, skipped=[], collisions=[], changed=True)
+    nicks = nicks or SimpleNamespace(nicknames={}, conflicts=[], ambiguous=[], changed=False)
 
     def write_slug_map(data_dir):
         if isinstance(slugs, Exception):
             raise slugs
         return slugs
+
+    def write_nicknames(data_dir):
+        if isinstance(nicks, Exception):
+            raise nicks
+        return nicks
 
     def record_releases(data_dir, version, manifest_id):
         if releases_error:
@@ -50,6 +58,7 @@ def _fake_tools(*, slugs=None, releases_error=False, new_bots=()):
     return SimpleNamespace(
         paths=SimpleNamespace(DataRepoError=FakeDataRepoError, INDEX_REL=Path("index")),
         slug_map=SimpleNamespace(write_slug_map=write_slug_map),
+        nicknames=SimpleNamespace(write_nicknames=write_nicknames),
         releases=SimpleNamespace(record_releases=record_releases,
                                  record_patch_manifests=record_patch_manifests),
     )
@@ -109,6 +118,35 @@ class IndexStageTests(unittest.TestCase):
         rc, published = self._run(_fake_tools(releases_error=True))
         self.assertEqual((rc, len(published)), (0, 1))  # the slug map still goes out
 
+    def test_changed_nicknames_are_pushed(self):
+        unchanged = SimpleNamespace(slug_map={}, skipped=[], collisions=[], changed=False)
+        nicks = SimpleNamespace(nicknames={"p": ["Marcus"]}, conflicts=[], ambiguous=[], changed=True)
+        rc, published = self._run(_fake_tools(slugs=unchanged, nicks=nicks))
+        self.assertEqual((rc, len(published)), (0, 1))
+        self.assertIn("update nicknames", published[0][2])
+
+    def test_nickname_conflict_is_advisory(self):
+        nicks = SimpleNamespace(nicknames={}, conflicts=[("marcus", ["a", "b"])], ambiguous=[],
+                                changed=True)
+        with self._loguru_errors() as errors:
+            rc, published = self._run(_fake_tools(nicks=nicks))
+        self.assertEqual((rc, len(published)), (0, 1))  # the slug map still goes out
+        self.assertTrue(any("nickname conflict" in e for e in errors))
+
+    def test_nicknames_failure_is_advisory(self):
+        rc, published = self._run(_fake_tools(nicks=FakeDataRepoError("no Pilot.json")))
+        self.assertEqual((rc, len(published)), (0, 1))
+
+    @contextlib.contextmanager
+    def _loguru_errors(self):
+        """Collect the stage's ERROR messages (it logs with loguru, not logging)."""
+        errors: list[str] = []
+        sink = logger.add(lambda m: errors.append(m.record["message"]), level="ERROR")
+        try:
+            yield errors
+        finally:
+            logger.remove(sink)
+
     def test_new_robot_named_in_commit(self):
         bot = {"id": "wyrm", "name": "Wyrm", "character_type": "Mech"}
         _rc, published = self._run(_fake_tools(new_bots=[bot]))
@@ -139,7 +177,7 @@ class ImportToolsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             package = Path(tmp) / "tools" / "wrfdb_data"
             package.mkdir(parents=True)
-            for name in ("__init__", "paths", "releases"):
+            for name in ("__init__", "nicknames", "paths", "releases"):
                 (package / f"{name}.py").write_text("", encoding="utf-8")
             (package / "slug_map.py").write_text("def write_slug_map(d):\n    return 'built'\n",
                                                   encoding="utf-8")
