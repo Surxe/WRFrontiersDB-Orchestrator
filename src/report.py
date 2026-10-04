@@ -4,7 +4,8 @@ The report is pure reporting layered on top of the run: it never changes what th
 pipeline does. For a finished (or aborted) run it answers:
 
 * how many warnings/errors/unknown properties each step that was reached produced,
-* what those warning/error lines actually said (inline, capped), and
+* what those warning/error lines actually said (inline, capped) — except for the
+  parse step, whose lines are summarised as groups instead (see below), and
 * where every log file is (as a clickable ``file://`` link).
 
 Counts come from the per-step log files :class:`~logging_stream.RunLogger` handed
@@ -22,9 +23,15 @@ Two count strategies, because not every step logs the same way:
   (``WARNING | ...``) — counted exactly. The parser logs every unknown property
   (new game data it neither parses nor skips) at its custom ``UNKNOWN_PROPERTY``
   level; those are counted separately and not shown inline, since one patch can
-  produce thousands of them (the parser's tools/warning_report.py groups them);
+  produce thousands of them;
 * the SITE / SITE-DEPLOY steps shell out to npm/astro/gh, which have no loguru
   levels, so their counts are a best-effort text scan, flagged as approximate.
+
+The parse step's raw lines aren't shown: a patch's parse repeats one message per
+module, so the first lines are usually copies of a single issue. Instead the
+Parser's tools/warning_report.py groups the whole log (parse_warnings.py) and the
+report lists each group once — kind, count, title, NEW vs the last completed
+parse — with the full grouped report attached as parse-warnings.md.
 """
 
 from __future__ import annotations
@@ -49,6 +56,11 @@ _TEXT_ERROR = re.compile(r"\b(error|failed)\b|npm ERR!", re.IGNORECASE)
 
 # Cap the inline lines per step so a noisy run can't produce a giant email.
 _MAX_LINES = 25
+# Steps whose raw lines are not shown inline (summarised as groups instead).
+_NO_INLINE_STAGES = {"parse"}
+# Cap the parse warning groups listed in the email (the attachment has them all).
+_MAX_GROUPS = 40
+_GROUP_TITLE_WIDTH = 140
 
 
 @dataclass(frozen=True)
@@ -75,6 +87,7 @@ def _count_file(stage: str, path: Path) -> StepCount:
     )
     warnings = errors = unknown = 0
     collected: list[str] = []
+    inline = stage not in _NO_INLINE_STAGES
     for ln in text.splitlines():
         if loguru and _LOGURU_UNKNOWN.match(ln):
             unknown += 1
@@ -87,10 +100,10 @@ def _count_file(stage: str, path: Path) -> StepCount:
             errors += 1
         elif is_warn:
             warnings += 1
-        if is_err or is_warn:
+        if inline and (is_err or is_warn):
             if len(collected) < _MAX_LINES:
                 collected.append(ln.rstrip())
-    truncated = (warnings + errors) > len(collected)
+    truncated = inline and (warnings + errors) > len(collected)
     return StepCount(stage, warnings, errors, not loguru, tuple(collected), truncated, unknown)
 
 
@@ -113,6 +126,9 @@ class RunReport:
         self._runlog = runlog
         self.game_version = game_version
         self.result = "INCOMPLETE"  # set via finalize()
+        # parse_warnings.ParseWarnings once the parse step's log was grouped;
+        # None if parse never ran or the grouping failed.
+        self.parse_warnings = None
 
     def finalize(self, result: str, *, game_version: str | None = None) -> None:
         """Record the run's outcome (e.g. 'COMPLETE', 'FAILED at PARSE')."""
@@ -133,6 +149,8 @@ class RunReport:
         """Every log file this run wrote (stage logs in order, then run.log)."""
         paths = [path for _stage, path in self._runlog.stage_logs]
         paths.append(self._runlog.run_log)
+        if self.parse_warnings is not None and self.parse_warnings.report_path:
+            paths.append(self.parse_warnings.report_path)
         return [Path(p) for p in paths if Path(p).is_file()]
 
     def run_dir_name(self) -> str:
@@ -151,7 +169,12 @@ class RunReport:
 
     def subject(self) -> str:
         version = self.game_version or "unknown"
-        return f"WRFrontiersDB {version} - {self.result}: {self._totals_text()}"
+        text = f"WRFrontiersDB {version} - {self.result}: {self._totals_text()}"
+        pw = self.parse_warnings
+        if pw is not None:
+            text += f" ({len(pw.groups)} groups" + (
+                f", {pw.new_count} NEW)" if pw.baseline else ")")
+        return text
 
     def facts(self) -> list[tuple[str, str]]:
         """Label/value lines heading the report, above Result and Totals."""
@@ -159,7 +182,35 @@ class RunReport:
 
     def details(self) -> list[tuple[str, list[str]]]:
         """Extra (heading, lines) sections shown after the step table."""
-        return []
+        return self._parse_warning_details()
+
+    def _parse_warning_details(self) -> list[tuple[str, list[str]]]:
+        parsed = any(stage == "parse" for stage, _path in self._runlog.stage_logs)
+        if not parsed:
+            return []
+        pw = self.parse_warnings
+        if pw is None:
+            return [("Parse warning groups",
+                     ["unavailable: the grouping failed (see run.log)"])]
+        heading = f"Parse warning groups ({len(pw.groups)}"
+        heading += (f"; {pw.new_count} NEW vs {pw.baseline})" if pw.baseline
+                    else "; no baseline for NEW)")
+        if not pw.groups:
+            return [(heading, ["none - clean parse"])]
+        kind_w = max(len(g.kind) for g in pw.groups)
+        count_w = max(len(str(g.count)) for g in pw.groups) + 1
+        lines = [
+            f"{g.kind:<{kind_w}}  {str(g.count) + 'x':>{count_w}}  "
+            f"{_clip(g.title, _GROUP_TITLE_WIDTH)}" + ("  NEW" if g.new else "")
+            for g in pw.groups[:_MAX_GROUPS]
+        ]
+        more = len(pw.groups) - _MAX_GROUPS
+        where = pw.report_path.name if pw.report_path else "the parse log"
+        if more > 0:
+            lines.append(f"... {more} more in {where}")
+        elif pw.report_path:
+            lines.append(f"(examples and export files: {where}, attached)")
+        return [(heading, lines)]
 
     def _totals_text(self) -> str:
         warns, errs, unknown = self.totals()
@@ -245,7 +296,9 @@ class RunReport:
 
         for heading, lines in self.details():
             p.append(f"<h3 style='margin:12px 0 4px'>{html.escape(heading)}</h3>")
-            p.append("<ul style='margin:0'>"
+            # Monospace + preserved spaces: detail lines may be column-aligned.
+            p.append("<ul style='margin:0;font-family:ui-monospace,Menlo,Consolas,"
+                     "monospace;font-size:13px;white-space:pre-wrap'>"
                      + "".join(f"<li>{html.escape(ln)}</li>" for ln in lines)
                      + "</ul>")
 
@@ -282,6 +335,10 @@ class RunReport:
                      f"{html.escape(self.approx_note)}</p>")
         p.append("</div>")
         return "\n".join(p)
+
+
+def _clip(text: str, width: int) -> str:
+    return text if len(text) <= width else text[: width - 3] + "..."
 
 
 def _uri(path: Path) -> str:
