@@ -29,6 +29,7 @@ from optionsconfig import init_options, ArgumentWriter  # noqa: E402
 
 import alerts  # noqa: E402
 import config  # noqa: E402
+import parse_warnings  # noqa: E402
 import preflight  # noqa: E402
 from logging_stream import RunLogger  # noqa: E402
 from report import RunReport  # noqa: E402
@@ -102,7 +103,20 @@ def main(args: argparse.Namespace) -> int:
     try:
         return _run_pipeline(options, repos, runlog, report)
     finally:
+        _group_parse_warnings(options, repos, runlog, report)
         alerts.send_report(options, report)
+
+
+def _group_parse_warnings(options, repos: Repos, runlog: RunLogger, report: RunReport) -> None:
+    """Group the parse log's warnings for the report, if PARSE ran (even if it
+    failed — a partial log is still worth grouping). Reporting only: never
+    raises, so the email still goes out."""
+    if not any(stage == "parse" for stage, _path in runlog.stage_logs):
+        return
+    try:
+        report.parse_warnings = parse_warnings.collect(repos, runlog.run_dir, options.wrf_root)
+    except Exception as exc:  # noqa: BLE001 - must not block the email
+        logger.warning(f"Parse warning report failed: {exc}")
 
 
 def _run_pipeline(options, repos: Repos, runlog: RunLogger, report: RunReport) -> int:

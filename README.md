@@ -127,7 +127,11 @@ the run-report email, the `patch-warnings` skill (Parser repo) and the
   counts at the top, then `file://` links to every log, with the logs themselves
   attached (each as text; one zip for a big run; none if too big even zipped). Unknown properties (the
   parser's custom `UNKNOWN_PROPERTY` level: new game data it neither parses nor
-  skips) are counted only; warning and error lines are also shown inline. Counts are exact for the loguru steps
+  skips) are counted only; warning and error lines are also shown inline, except
+  the parse step's: once PARSE has run, the Parser's `tools/warning_report.py`
+  groups its log (read-only, `--no-decisions`) and the email lists each group once
+  (kind, count, title, NEW vs the last completed parse; group count in the subject),
+  attaching the full grouped report as `parse-warnings.md` from the run dir. Counts are exact for the loguru steps
   (preflight/export/parse/releases) and a flagged text heuristic for the
   npm/astro/gh SITE steps. Email is enabled only when `SMTP_USER`,
   `SMTP_PASSWORD`, and `EMAIL_TO` are all set (see

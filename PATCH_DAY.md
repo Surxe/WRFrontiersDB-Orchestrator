@@ -28,7 +28,12 @@ probe (every 20 min) -> wrf-orchestrator@<version> -> EXPORT -> PARSE+PUSH -> RE
   run, and with it every later stage.
 - Every run ends with the **run-report email**: per-step WARNING / ERROR /
   UNKNOWN_PROPERTY counts (the last is the parser's level for new game data it
-  neither parses nor skips; counted only, not listed inline), then links to every log under `$WRF_ROOT/logs/<run-timestamp>/`, with the logs attached.
+  neither parses nor skips; counted only, not listed inline), then the parse
+  log's **warning groups** (from the Parser's `tools/warning_report.py`; NEW marks a
+  group the last completed parse didn't have), then links to every log under
+  `$WRF_ROOT/logs/<run-timestamp>/`, with the logs and the grouped report
+  (`parse-warnings.md`) attached. The groups are a preview only - `/patch-warnings`
+  re-runs the report in the Parser dev worktree, where decisions are tracked.
 
 Because the data is already live, the parser work below is about making the
 *next* publish complete. There's no deadline beyond "before players notice gaps".

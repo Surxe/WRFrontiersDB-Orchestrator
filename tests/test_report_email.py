@@ -22,6 +22,8 @@ sys.path.insert(0, str(SRC_DIR))
 import alerts  # noqa: E402
 import run  # noqa: E402
 from optionsconfig import ArgumentWriter  # noqa: E402
+import parse_warnings  # noqa: E402
+from parse_warnings import ParseWarnings, WarningGroup  # noqa: E402
 from report import RunReport  # noqa: E402
 
 
@@ -73,14 +75,14 @@ class ReportCountTests(unittest.TestCase):
         self.assertFalse(counts["parse"].approx)
         self.assertEqual(counts["parse"].unknown, 3)
         self.assertEqual(rep.totals(), (2, 2, 3))
-        # The actual warning/error lines are captured inline (self-contained email);
-        # unknown properties are only counted.
-        self.assertEqual(len(counts["parse"].lines), 4)
-        self.assertFalse(any("unknown property" in ln for ln in counts["parse"].lines))
+        # The parse step's raw lines are not inline (they're summarised as warning
+        # groups instead); unknown properties are only counted.
+        self.assertEqual(counts["parse"].lines, ())
+        self.assertFalse(counts["parse"].truncated)
         self.assertIn("3 unknown properties", rep.subject())
         self.assertIn("2W / 2E / 3U", rep.body())
         self.assertIn("<b>3</b> unknown properties", rep.body_html())
-        self.assertTrue(any("boom" in ln for ln in counts["parse"].lines))
+        self.assertNotIn("boom", rep.body())
 
     def test_site_counts_are_heuristic(self):
         rep = self._report({
@@ -98,22 +100,22 @@ class ReportCountTests(unittest.TestCase):
         self.assertGreaterEqual(c.errors, 1)
 
     def test_body_has_uris_result_and_inline_lines(self):
-        rep = self._report({"02-parse.log": "ERROR | parse:y:1 - boom\n"})
-        rep.finalize("FAILED at PARSE")
+        rep = self._report({"02-export.log": "ERROR | export:y:1 - boom\n"})
+        rep.finalize("FAILED at EXPORT")
         body = rep.body()
-        self.assertIn("FAILED at PARSE", body)
+        self.assertIn("FAILED at EXPORT", body)
         self.assertIn("file://", body)
-        self.assertIn("02-parse.log", body)
+        self.assertIn("02-export.log", body)
         self.assertIn("boom", body)  # the actual error line is inline
-        self.assertIn("FAILED at PARSE", rep.subject())
+        self.assertIn("FAILED at EXPORT", rep.subject())
         self.assertIn("1 errors", rep.subject())
 
     def test_html_hyperlinks_and_escapes(self):
-        rep = self._report({"02-parse.log": "ERROR | parse:y:1 - bad <x> & y\n"})
+        rep = self._report({"02-export.log": "ERROR | export:y:1 - bad <x> & y\n"})
         rep.finalize("COMPLETE")
         html = rep.body_html()
         self.assertIn('<a href="file://', html)          # links are hyperlinked
-        self.assertIn("02-parse.log</a>", html)
+        self.assertIn("02-export.log</a>", html)
         self.assertIn("bad &lt;x&gt; &amp; y", html)      # message text is escaped
 
     def test_hs_command_lists_this_runs_logs(self):
@@ -129,13 +131,113 @@ class ReportCountTests(unittest.TestCase):
         self.assertIn("&amp;&amp; ls -lh", rep.body_html())  # HTML-escaped, present
 
     def test_lines_are_capped(self):
-        many = "".join(f"ERROR | parse:y:{i} - e{i}\n" for i in range(40))
-        rep = self._report({"02-parse.log": many})
+        many = "".join(f"ERROR | export:y:{i} - e{i}\n" for i in range(40))
+        rep = self._report({"02-export.log": many})
         c = rep.counts()[0]
         self.assertEqual(c.errors, 40)          # count is exact
         self.assertEqual(len(c.lines), 25)      # inline lines are capped
         self.assertTrue(c.truncated)
         self.assertIn("showing first 25", rep.body())
+
+
+class ParseWarningGroupTests(unittest.TestCase):
+    """The parse step is summarised as warning groups (parse_warnings.py)."""
+
+    _report = ReportCountTests._report
+
+    def _groups(self, groups, *, baseline="2026-09-23_214314", report_path=None):
+        return ParseWarnings(tuple(WarningGroup(*g) for g in groups), 1500,
+                             baseline, report_path)
+
+    def test_groups_listed_once_with_new_markers(self):
+        rep = self._report({"03-parse.log": "WARNING | parse:x:1 - a\n" * 1488})
+        md = rep._runlog.run_dir / "parse-warnings.md"
+        md.write_text("# Parse warning report\n", encoding="utf-8")
+        rep.parse_warnings = self._groups([
+            ("warning", "analysis:get_ability_stat: Module <id>: index <n> out of range", 1488, False),
+            ("unknown-property", "Ability: 'DamageResistance'", 1, True),
+        ], report_path=md)
+        body = rep.body()
+        self.assertIn("Parse warning groups (2; 1 NEW vs 2026-09-23_214314):", body)
+        self.assertIn("1488x  analysis:get_ability_stat", body)
+        self.assertIn("Ability: 'DamageResistance'  NEW", body)
+        self.assertNotIn("parse:x:1 - a", body)          # no raw lines
+        self.assertIn("(2 groups, 1 NEW)", rep.subject())
+        self.assertIn("DamageResistance&#x27;  NEW", rep.body_html())
+        self.assertIn(md, rep.log_files())               # attached with the logs
+
+    def test_clean_and_no_baseline(self):
+        rep = self._report({"03-parse.log": "INFO | parse:x:1 - fine\n"})
+        rep.parse_warnings = self._groups([], baseline=None)
+        self.assertIn("Parse warning groups (0; no baseline for NEW):", rep.body())
+        self.assertIn("none - clean parse", rep.body())
+        self.assertTrue(rep.subject().endswith("(0 groups)"))
+
+    def test_grouping_failed_is_said(self):
+        rep = self._report({"03-parse.log": "WARNING | parse:x:1 - a\n"})
+        self.assertIn("unavailable: the grouping failed", rep.body())
+        self.assertNotIn("groups", rep.subject())
+
+    def test_no_section_without_parse(self):
+        rep = self._report({"02-export.log": "WARNING | export:x:1 - a\n"})
+        self.assertNotIn("Parse warning groups", rep.body())
+
+    def test_group_list_is_capped(self):
+        rep = self._report({"03-parse.log": ""})
+        rep.parse_warnings = self._groups(
+            [("unknown-property", f"Ability: 'K{i}'", 1, False) for i in range(45)])
+        body = rep.body()
+        self.assertIn("Ability: 'K39'", body)
+        self.assertNotIn("Ability: 'K40'", body)
+        self.assertIn("... 5 more in the parse log", body)
+
+
+class CollectTests(unittest.TestCase):
+    """parse_warnings.collect runs the Parser's tool (faked here) read-only."""
+
+    FAKE_TOOL = """import json, sys
+args = sys.argv[1:]
+open(sys.argv[0] + ".argv", "a").write(" ".join(args) + "\\n")
+if "--json" in args:
+    print(json.dumps({"log": "x", "baseline": "/w/logs/2026-09-23_214314/03-parse.log",
+                      "export_dir": None, "total_lines": 3, "counts": {},
+                      "groups": [{"kind": "warning", "title": "T", "count": 3, "new": True}]}))
+elif "--out" in args:
+    open(args[args.index("--out") + 1], "w").write("# report\\n")
+sys.exit(int(__import__("os").environ.get("FAKE_RC", "1")))
+"""
+
+    def _setup(self, tmp: Path):
+        parser_dir = tmp / "WRFrontiersDB-Parser"
+        (parser_dir / "tools").mkdir(parents=True)
+        tool = parser_dir / "tools" / "warning_report.py"
+        tool.write_text(self.FAKE_TOOL, encoding="utf-8")
+        run_dir = tmp / "run"
+        run_dir.mkdir()
+        repos = SimpleNamespace(parser_dir=parser_dir, venv_python=lambda _d: Path(sys.executable))
+        return repos, run_dir, tool
+
+    def test_collects_groups_and_writes_report(self):
+        with tempfile.TemporaryDirectory() as t:
+            repos, run_dir, tool = self._setup(Path(t))
+            pw = parse_warnings.collect(repos, run_dir, Path(t))
+            self.assertEqual(pw.groups, (WarningGroup("warning", "T", 3, True),))
+            self.assertEqual(pw.baseline, "2026-09-23_214314")
+            self.assertEqual(pw.report_path, run_dir / "parse-warnings.md")
+            self.assertTrue(pw.report_path.is_file())
+            calls = Path(str(tool) + ".argv").read_text().splitlines()
+            self.assertTrue(all("--no-decisions" in c for c in calls))  # read-only
+
+    def test_bad_exit_returns_none(self):
+        with tempfile.TemporaryDirectory() as t:
+            repos, run_dir, _tool = self._setup(Path(t))
+            with mock.patch.dict("os.environ", {"FAKE_RC": "2"}):
+                self.assertIsNone(parse_warnings.collect(repos, run_dir, Path(t)))
+
+    def test_missing_tool_returns_none(self):
+        with tempfile.TemporaryDirectory() as t:
+            repos = SimpleNamespace(parser_dir=Path(t), venv_python=lambda _d: Path(sys.executable))
+            self.assertIsNone(parse_warnings.collect(repos, Path(t), Path(t)))
 
 
 class EmailConfigTests(unittest.TestCase):
@@ -317,6 +419,22 @@ class RunWiringTests(unittest.TestCase):
     def test_emails_on_success(self):
         sent = self._drive(["--should-build-site", "true"])
         self.assertEqual(sent, ["COMPLETE"])
+
+    def test_parse_grouped_before_email_even_on_failure(self):
+        order = []
+        with mock.patch.object(run.parse_warnings, "collect",
+                               lambda *a, **k: order.append("grouped")), \
+             mock.patch("stages.parse.run_streamed",
+                        lambda cmd, *, cwd, stage, log_path, env=None:
+                        (Path(log_path).write_text("", encoding="utf-8"), 1)[1]):
+            sent = self._drive(["--should-parse", "true"], expect_rc=1)
+        self.assertEqual(order, ["grouped"])
+        self.assertEqual(sent, ["FAILED at PARSE"])
+
+    def test_no_grouping_without_parse(self):
+        with mock.patch.object(run.parse_warnings, "collect",
+                               side_effect=AssertionError("should not run")):
+            self._drive(["--should-build-site", "true"])
 
     def test_emails_on_stage_failure(self):
         sent = self._drive(["--should-build-site", "true"],
