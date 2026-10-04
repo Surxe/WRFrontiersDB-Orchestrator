@@ -216,8 +216,9 @@ OPTIONS_SCHEMA = {
         "default": False,
         "section": "Stages",
         "help": "Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: "
-                "the slug map (index/slug_map.json), newly-released robots "
-                "(index/robot_release_dates.json, version id + manifest id) and this "
+                "the slug map (index/slug_map.json), nicknames (index/nicknames.json), "
+                "newly-released robots (index/robot_release_dates.json, version id + "
+                "manifest id) and this "
                 "patch (index/patch_manifests.json); then commit/push index/. Reads the "
                 "data repo, so it wants parse/push to have run first.",
     },
