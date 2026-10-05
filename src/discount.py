@@ -62,6 +62,7 @@ def outcome(events: list[dict]) -> tuple[str, bool]:
         "no-change": ("NO CHANGE", True),
         "no-discount-post-found": ("NO DISCOUNT POST", True),
         "primed": ("PRIMED", True),
+        "already-published": ("ALREADY PUBLISHED (deployed by hand)", True),
     }.get(last, (f"UNKNOWN OUTCOME ({last or 'no events'})", False))
 
 

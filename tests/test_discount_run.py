@@ -122,6 +122,9 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual(discount.outcome([ANNOUNCED, {"event": "dispatched"}]),
                          ("DISPATCHED", True))
         self.assertEqual(discount.outcome([{"event": "no-change"}]), ("NO CHANGE", True))
+        self.assertEqual(
+            discount.outcome([ANNOUNCED, {"event": "already-published"}]),
+            ("ALREADY PUBLISHED (deployed by hand)", True))
         self.assertFalse(discount.outcome([ANNOUNCED, {"event": "dispatch-error"}])[1])
         self.assertFalse(discount.outcome([ANNOUNCED, {"event": "dispatch-skipped"}])[1])
 
