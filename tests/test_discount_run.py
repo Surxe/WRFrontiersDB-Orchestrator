@@ -170,7 +170,7 @@ class DiscountReportTests(unittest.TestCase):
 
 
 class EmailDecisionTests(unittest.TestCase):
-    def _run(self, events: list[dict], watch_rc: int = 0, vis=None):
+    def _run(self, events: list[dict], watch_rc: int = 0, vis=None, record_rc: int = 0):
         tmp = Path(tempfile.mkdtemp())
         scripts = tmp / "repos" / "WRFrontiers-News-Scraper" / "scripts"
         scripts.mkdir(parents=True)
@@ -188,9 +188,12 @@ class EmailDecisionTests(unittest.TestCase):
              mock.patch.object(discount_stage, "watch", fake_stage("watch", watch_rc, watch_text)), \
              mock.patch.object(discount_stage, "follow_visualizer",
                                return_value=vis or _vis("success")) as follow, \
+             mock.patch.object(discount_stage, "record_visualizer",
+                               return_value=record_rc) as record, \
              mock.patch.object(discount.alerts, "send_report") as send:
             rc = discount.main(_args(tmp / "logs", tmp / "repos"))
         self.followed = follow.called
+        self.recorded = record.called
         return rc, send, list((tmp / "logs").iterdir())
 
     def test_quiet_poll_sends_nothing_and_cleans_up(self):
@@ -216,6 +219,19 @@ class EmailDecisionTests(unittest.TestCase):
                                 vis=_vis("failure"))
         self.assertEqual(rc, 1)
         self.assertEqual(send.call_args.args[1].result, "VISUALIZER FAILURE")
+
+    def test_deploy_is_recorded(self):
+        self._run([ANNOUNCED, {"event": "dispatched"}])
+        self.assertTrue(self.recorded)
+
+    def test_failed_visualizer_run_is_not_recorded(self):
+        self._run([ANNOUNCED, {"event": "dispatched"}], vis=_vis("failure"))
+        self.assertFalse(self.recorded)
+
+    def test_unrecorded_deploy_fails_the_run(self):
+        rc, send, _ = self._run([ANNOUNCED, {"event": "dispatched"}], record_rc=1)
+        self.assertEqual(rc, 1)
+        self.assertEqual(send.call_args.args[1].result, "VISUALIZER DEPLOYED, NOT RECORDED")
 
     def test_dry_run_does_not_follow(self):
         rc, send, _ = self._run([ANNOUNCED, {"event": "dispatch-dry-run"}])

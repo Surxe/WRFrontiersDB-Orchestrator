@@ -6,7 +6,8 @@ No external processes run: `run_streamed` is stubbed with a recorder, so npm and
     short-circuits if install or slugs fail;
   * site_deploy.run dispatches the right `gh workflow run` command, then follows
     the CI run and fails when it doesn't succeed;
-  * a successful deploy (only) is recorded in the deploy state file;
+  * a successful deploy (only) is recorded in the deploy state file, from the
+    run's deploy-record artifact;
   * run.main sequences SITE-DEPLOY after SITE and skips it when a build breaks;
   * --patch-day enables the deploy;
   * preflight fails fast when gh is missing.
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import sys
 import tempfile
@@ -32,6 +34,7 @@ SRC_DIR = ROOT_DIR / "src"
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
+import deploy_record  # noqa: E402
 import gh_runs  # noqa: E402
 import preflight  # noqa: E402
 import run  # noqa: E402
@@ -97,9 +100,13 @@ class SiteDeployUnitTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.state_file = Path(tmp.name) / "data" / "site_deploy_state.json"
-        patcher = mock.patch.object(site_deploy_stage, "STATE_FILE", self.state_file)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (
+            mock.patch.object(site_deploy_stage, "FRONTEND",
+                              dataclasses.replace(deploy_record.SITE, state_file=self.state_file)),
+            mock.patch.object(deploy_record, "download", side_effect=fake_download),
+        ):
+            self.download = patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _deploy(self, rec, conclusion="success"):
         follow = FakeFollow(conclusion)
@@ -111,14 +118,27 @@ class SiteDeployUnitTests(unittest.TestCase):
     def test_success_records_the_deployed_run(self):
         rc, _follow = self._deploy(Recorder())
         self.assertEqual(rc, 0)
+        self.download.assert_called_once_with("Surxe/WRFrontiersDB-Site", "1")
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
-        self.assertEqual(state["site_run_id"], "1")
-        self.assertEqual(state["site_run_url"], "https://example.invalid/run/1")
-        self.assertEqual(state["game_version"], "2026-08-22")
+        self.assertEqual(state["run_id"], "1")
+        self.assertEqual(state["data_commit"], "abc1234def")
+        self.assertEqual(state["data_version"], "2026-08-22")
         self.assertTrue(state["deployed_at_utc"].endswith("Z"))
 
     def test_failed_ci_run_is_not_recorded(self):
         self._deploy(Recorder(), conclusion="failure")
+        self.assertFalse(self.state_file.exists())
+
+    def test_missing_artifact_fails_the_stage(self):
+        self.download.side_effect = deploy_record.DeployRecordError("no artifact")
+        rc, _follow = self._deploy(Recorder())
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.state_file.exists())
+
+    def test_artifact_from_another_run_fails_the_stage(self):
+        self.download.side_effect = lambda repo, run_id: fake_download(repo, "2")
+        rc, _follow = self._deploy(Recorder())
+        self.assertEqual(rc, 1)
         self.assertFalse(self.state_file.exists())
 
     def test_unwritable_state_fails_the_stage(self):
@@ -197,7 +217,9 @@ class RunWiringTests(unittest.TestCase):
                  mock.patch.object(site_stage, "run_streamed", rec), \
                  mock.patch.object(site_deploy_stage, "run_streamed", rec), \
                  mock.patch.object(site_deploy_stage, "follow", FakeFollow("success")), \
-                 mock.patch.object(site_deploy_stage, "STATE_FILE", Path(tmp) / "deploy_state.json"):
+                 mock.patch.object(site_deploy_stage, "FRONTEND", dataclasses.replace(
+                     deploy_record.SITE, state_file=Path(tmp) / "deploy_state.json")), \
+                 mock.patch.object(deploy_record, "download", side_effect=fake_download):
                 rc = run.main(args)
         self.assertEqual(rc, expect_rc)
         return rec
@@ -242,6 +264,12 @@ class FakeFollow:
         self.calls.append((repo, workflow))
         return gh_runs.WorkflowRun(url="https://example.invalid/run/1", run_id="1",
                                    status="completed", conclusion=self.conclusion)
+
+
+def fake_download(repo: str, run_id: str) -> dict:
+    """Stand-in for deploy_record.download: the record a run's artifact holds."""
+    return {"app": repo.split("/")[1], "run_id": run_id, "data_commit": "abc1234def",
+            "data_version": "2026-08-22", "built_at_utc": "2026-08-22T10:00:00Z"}
 
 
 def _fake_repos() -> Repos:
