@@ -6,13 +6,14 @@ were built from, plus their own commit and CI run. It is served live as
 `<url>/deploy.json` and uploaded as the run's `deploy-record` artifact. Fields are
 documented in WRFrontiersDB-Data's `tools/wrfdb_data/deploy_record.py`.
 
-After the pipeline follows a frontend's run to success, :func:`record` downloads
-that run's artifact (exact, no CDN lag) and writes it, plus `deployed_at_utc`, to
-the frontend's state file under `data/`. Consumers watch those files: the Discord
-bot re-fetches the Site's `/meta_descriptions.json` when `run_id` changes, and
-reads `data_commit` from it. Deploys made outside the pipeline (a Site push, a
-hand-run Visualizer deploy) only update the live `/deploy.json`; `bin/wrf-deployed`
-(src/deployed.py) compares the live records with the state files and Data `main`.
+After SITE-DEPLOY follows the Site's run to success, :func:`record` downloads that
+run's artifact (exact, no CDN lag) and writes it, plus `deployed_at_utc`, to
+`data/site_deploy_state.json`. The Discord bot watches that file: it re-fetches the
+Site's `/meta_descriptions.json` when `run_id` changes, and reads `data_commit` from
+it. Only the Site has a state file, because the bot is its only consumer; anything
+else asking what's deployed reads the live `/deploy.json`, which every deploy
+updates, pipeline or not. `bin/wrf-deployed` (src/deployed.py) compares the live
+records with Data `main` and the Site's state file.
 """
 
 from __future__ import annotations
@@ -43,7 +44,8 @@ class Frontend:
     repo: str
     url: str
     """The live site's root, with a trailing slash."""
-    state_file: Path
+    state_file: Path | None = None
+    """Where the pipeline records its deploys of this frontend, if it does."""
 
     @property
     def record_url(self) -> str:
@@ -53,8 +55,7 @@ class Frontend:
 SITE = Frontend("Site", "Surxe/WRFrontiersDB-Site", "https://wrf-db.info/",
                 STATE_DIR / "site_deploy_state.json")
 VISUALIZER = Frontend("Visualizer", "Surxe/WRFrontiers-Discount-Visualizer",
-                      "https://surxe.github.io/WRFrontiers-Discount-Visualizer/",
-                      STATE_DIR / "visualizer_deploy_state.json")
+                      "https://surxe.github.io/WRFrontiers-Discount-Visualizer/")
 FRONTENDS = (SITE, VISUALIZER)
 
 
@@ -88,7 +89,7 @@ def fetch_live(frontend: Frontend) -> dict:
 
 def read_state(frontend: Frontend) -> dict | None:
     """The last deploy the pipeline recorded, or None if it never recorded one."""
-    if not frontend.state_file.exists():
+    if frontend.state_file is None or not frontend.state_file.exists():
         return None
     return _parse(frontend.state_file, f"{frontend.name} deploy state")
 

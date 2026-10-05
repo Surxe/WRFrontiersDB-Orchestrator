@@ -39,12 +39,12 @@ def fake_gh(behind: int):
     return gh
 
 
-def check(live, state=None, behind=0):
+def check(live, state=None, behind=0, frontend=deploy_record.SITE):
     def fetch_live(frontend):
         if isinstance(live, Exception):
             raise live
         return live
-    return deployed.check(deploy_record.SITE, MAIN, gh=fake_gh(behind),
+    return deployed.check(frontend, MAIN, gh=fake_gh(behind),
                           fetch_live=fetch_live, read_state=lambda f: state)
 
 
@@ -88,6 +88,13 @@ class ReportTests(unittest.TestCase):
         text = "\n".join(deployed.report(self.MAIN_COMMIT, results, now=NOW))
         self.assertIn("2 commit(s) behind main", text)
         self.assertIn("the frontends serve different Data commits", text)
+
+    def test_visualizer_has_no_pipeline_state(self):
+        self.assertIsNone(deploy_record.VISUALIZER.state_file)
+        self.assertIsNone(deploy_record.read_state(deploy_record.VISUALIZER))
+        results = {"Visualizer": check(rec(MAIN), frontend=deploy_record.VISUALIZER)}
+        text = "\n".join(deployed.report(self.MAIN_COMMIT, results, now=NOW))
+        self.assertNotIn("pipeline state", text)
 
     def test_error_is_not_current(self):
         results = {"Site": check(DeployRecordError("404"))}
