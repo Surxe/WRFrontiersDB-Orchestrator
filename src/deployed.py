@@ -2,11 +2,10 @@
 """What data is live? Each frontend's deployed WRFrontiersDB-Data commit vs Data main.
 
 For the Site and the Discount Visualizer: the deploy record the live site serves
-(`/deploy.json`), how far its Data commit is behind Data `main`, and whether the
-pipeline's state file (what the Discord bot reads) matches it. Deploys made
-outside the pipeline update only the live record, so a mismatch there is normal
-until the next pipeline deploy; it matters only for the Site, since the bot reads
-the Site's state.
+(`/deploy.json`), how far its Data commit is behind Data `main`, and for the Site
+whether the pipeline's state file (what the Discord bot reads) matches it. A
+Site deploy made outside the pipeline updates only the live record, so a
+mismatch there is normal until the next pipeline deploy.
 
 Exit code: 0 when both frontends serve Data `main`, 1 otherwise (behind, or a
 record could not be read).
@@ -48,7 +47,8 @@ def commits_behind(data_commit: str, main_sha: str, gh=gh_runs.gh_json) -> int:
 def check(frontend: Frontend, main_sha: str, *, gh=gh_runs.gh_json,
           fetch_live=deploy_record.fetch_live, read_state=deploy_record.read_state) -> dict:
     """One frontend's live record, pipeline state and distance from Data main."""
-    out: dict = {"url": frontend.record_url, "live": None, "behind_main": None,
+    out: dict = {"url": frontend.record_url, "has_state": frontend.state_file is not None,
+                 "live": None, "behind_main": None,
                  "state": None, "state_matches_live": None, "error": None}
     try:
         out["state"] = read_state(frontend)
@@ -84,7 +84,9 @@ def report(main: dict, results: dict[str, dict], now: datetime | None = None) ->
                      f"{where}")
         lines.append(f"{'':<11} built {live['built_at_utc']} ({_ago(live['built_at_utc'], now)}) "
                      f"by {live.get('trigger') or 'hand'}: {live.get('run_url') or '-'}")
-        if r["state"] is None:
+        if not r["has_state"]:
+            pass
+        elif r["state"] is None:
             lines.append(f"{'':<11} pipeline state: none recorded")
         elif not r["state_matches_live"]:
             st = r["state"]

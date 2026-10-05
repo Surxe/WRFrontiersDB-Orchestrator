@@ -127,8 +127,6 @@ def _run_discount(repos: Repos, runlog: RunLogger, report: DiscountReport,
         report.visualizer = vis
         if not vis.ok:
             result, ok = f"VISUALIZER {(vis.conclusion or vis.status).upper()}", False
-        elif discount_stage.record_visualizer(vis, runlog) != 0:
-            result, ok = "VISUALIZER DEPLOYED, NOT RECORDED", False
     report.finalize(result)
     if not ok:
         logger.error(f"Discount run: {result}")

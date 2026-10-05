@@ -77,15 +77,15 @@ Both frontends write a deploy record at build time (WRFrontiersDB-Data's
 `record-deploy` action) and serve it as `/deploy.json`: the Data commit, date and
 version they were built from, their own commit and CI run, and the build time.
 That covers every deploy, including ones the pipeline didn't make (a Site push, a
-hand-run Visualizer deploy). The pipeline also copies the record of each deploy it
-follows into `data/` (`site_deploy_state.json` from SITE-DEPLOY,
-`visualizer_deploy_state.json` from the discount run); failing to record fails
-the stage.
+hand-run Visualizer deploy). SITE-DEPLOY also copies the record of the Site
+deploy it made into `data/site_deploy_state.json` for the Discord bot; failing to
+record fails the stage. The Visualizer has no state file: nothing consumes one,
+and the live record is always current.
 
 To check what's live, run `bin/wrf-deployed` (`--json` for scripts). For each
 frontend it shows the live Data commit and version, how many commits it is behind
 Data `main`, when and how it was built, and whether the pipeline's state file is
-the same deploy. It exits 0 only when both frontends serve Data `main`.
+the same deploy (Site only). It exits 0 only when both frontends serve Data `main`.
 
 The SITE build resolves its styling from **WRFrontiersDB-Design**, the shared
 design system (tokens + self-hosted brand font) that both front-ends —
@@ -103,8 +103,7 @@ GitHub Actions run and waits for it to finish (`--visualizer-timeout`, default
 30 min), each step streamed to its own log like the patch-day stages. A failed,
 cancelled, timed-out or missing visualizer run fails the discount run, and the
 report names the run, its failed jobs, and any error lines from their logs (e.g.
-an item Jev couldn't map). A succeeded run's deploy record is copied to
-`data/visualizer_deploy_state.json` (see [Deploy records](#deploy-records-what-data-is-live)). The scraper owns the logic and stays standard-library only; it
+an item Jev couldn't map). The scraper owns the logic and stays standard-library only; it
 gets none of the orchestrator's secrets. Dispatch is the scraper's opt-in
 (`WRF_DISPATCH=1`).
 
