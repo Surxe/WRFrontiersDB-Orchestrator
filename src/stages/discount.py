@@ -11,7 +11,8 @@ per-stage log the run report can count and attach.
   back from the stage log so the run can tell a new week from a no-op poll.
 * VISUALIZER — after a real dispatch, find the visualizer's GitHub Actions run
   and wait for it to finish (:func:`follow_visualizer`), so the report carries
-  the run's result, not just "dispatched".
+  the run's result, not just "dispatched". A successful run's deploy record is
+  copied to `data/visualizer_deploy_state.json` (:func:`record_visualizer`).
 
 Dispatch stays the scraper's opt-in: ``WRF_DISPATCH=1`` in the environment (set
 by the systemd unit) passes straight through to the child.
@@ -25,6 +26,7 @@ import time
 from pathlib import Path
 
 import config
+import deploy_record
 import gh_runs
 from logging_stream import RunLogger, run_streamed
 from repos import Repos
@@ -76,7 +78,7 @@ def read_events(log_path: Path) -> list[dict]:
 
 # --- VISUALIZER: follow the run the WATCH step dispatched ---------------------
 
-VIS_REPO = "Surxe/WRFrontiers-Discount-Visualizer"
+VIS_REPO = deploy_record.VISUALIZER.repo
 VIS_WORKFLOW = "all.yml"
 
 VisualizerRun = gh_runs.WorkflowRun
@@ -93,3 +95,9 @@ def follow_visualizer(since: float, runlog: RunLogger, *, gh=gh_runs.gh_json,
         return gh_runs.follow_dispatched_run(
             VIS_REPO, VIS_WORKFLOW, since, label="Visualizer run",
             gh=gh, sleep=sleep, clock=clock, timeout=timeout, poll=poll)
+
+
+def record_visualizer(vis: VisualizerRun, runlog: RunLogger) -> int:
+    """Record the succeeded visualizer run's deploy (its own `deploy-record` step log)."""
+    with runlog.stage_sink("deploy-record"):
+        return deploy_record.record(deploy_record.VISUALIZER, vis)

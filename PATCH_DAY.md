@@ -213,5 +213,10 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
   this), then republish.
 - **Scratch parse killed / box sluggish.** Memory: a parse peaks ~2.6 GB. Don't
   run one while the pipeline is running (`systemctl is-active 'wrf-orchestrator@*'`).
+- **Is the new data live?** `bin/wrf-deployed` shows which Data commit the Site
+  and the Visualizer serve (from their `/deploy.json`) and how far behind Data
+  `main` each is. If the Site is behind after a run, SITE-DEPLOY didn't deploy:
+  check the run report's `site-ci` step. The output links the run that built
+  what's live.
 - **The report says `baseline: none`.** No earlier completed pipeline parse
   exists to compare against, so there are no NEW markers. Grouping still works.

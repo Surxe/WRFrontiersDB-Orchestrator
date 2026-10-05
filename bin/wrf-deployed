@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# wrf-deployed — what WRFrontiersDB-Data commit is each frontend (Site, Discount
+# Visualizer) serving, vs Data main and the pipeline's deploy state. Exit 0 when
+# both serve main. Args pass through to src/deployed.py (e.g. --json).
+set -uo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$REPO/.venv/bin/python" "$REPO/src/deployed.py" "$@"
