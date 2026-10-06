@@ -32,9 +32,11 @@ def import_tools(data_dir: Path):
     tools_dir = str(Path(data_dir) / TOOLS_REL)
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)
+    import wrfdb_data.abbreviations  # noqa: F401
     import wrfdb_data.nicknames  # noqa: F401
     import wrfdb_data.paths  # noqa: F401
     import wrfdb_data.releases  # noqa: F401
+    import wrfdb_data.robot_parts  # noqa: F401
     import wrfdb_data.slug_map  # noqa: F401
     import wrfdb_data
     return wrfdb_data

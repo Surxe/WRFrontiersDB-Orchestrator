@@ -32,9 +32,11 @@ class FakeDataRepoError(RuntimeError):
     pass
 
 
-def _fake_tools(*, slugs=None, nicks=None, releases_error=False, new_bots=()):
+def _fake_tools(*, slugs=None, nicks=None, aliases=None, abbrevs=None, releases_error=False, new_bots=()):
     slugs = slugs or SimpleNamespace(slug_map={"a": "a"}, skipped=[], collisions=[], changed=True)
     nicks = nicks or SimpleNamespace(nicknames={}, conflicts=[], ambiguous=[], changed=False)
+    aliases = aliases or SimpleNamespace(aliases={}, changed=False)
+    abbrevs = abbrevs or SimpleNamespace(abbreviations={}, unused=[], changed=False)
 
     def write_slug_map(data_dir):
         if isinstance(slugs, Exception):
@@ -45,6 +47,16 @@ def _fake_tools(*, slugs=None, nicks=None, releases_error=False, new_bots=()):
         if isinstance(nicks, Exception):
             raise nicks
         return nicks
+
+    def write_aliases(data_dir):
+        if isinstance(aliases, Exception):
+            raise aliases
+        return aliases
+
+    def write_abbreviations(data_dir):
+        if isinstance(abbrevs, Exception):
+            raise abbrevs
+        return abbrevs
 
     def record_releases(data_dir, version, manifest_id):
         if releases_error:
@@ -59,6 +71,8 @@ def _fake_tools(*, slugs=None, nicks=None, releases_error=False, new_bots=()):
         paths=SimpleNamespace(DataRepoError=FakeDataRepoError, INDEX_REL=Path("index")),
         slug_map=SimpleNamespace(write_slug_map=write_slug_map),
         nicknames=SimpleNamespace(write_nicknames=write_nicknames),
+        robot_parts=SimpleNamespace(write_aliases=write_aliases),
+        abbreviations=SimpleNamespace(write_abbreviations=write_abbreviations),
         releases=SimpleNamespace(record_releases=record_releases,
                                  record_patch_manifests=record_patch_manifests),
     )
@@ -137,6 +151,19 @@ class IndexStageTests(unittest.TestCase):
         rc, published = self._run(_fake_tools(nicks=FakeDataRepoError("no Pilot.json")))
         self.assertEqual((rc, len(published)), (0, 1))
 
+    def test_changed_aliases_and_abbreviations_are_pushed(self):
+        unchanged = SimpleNamespace(slug_map={}, skipped=[], collisions=[], changed=False)
+        aliases = SimpleNamespace(aliases={"m": ["Wyrm Chassis"]}, changed=True)
+        abbrevs = SimpleNamespace(abbreviations={"r": "relic"}, unused=[], changed=True)
+        rc, published = self._run(_fake_tools(slugs=unchanged, aliases=aliases, abbrevs=abbrevs))
+        self.assertEqual((rc, len(published)), (0, 1))
+        self.assertIn("update aliases, update abbreviations", published[0][2])
+
+    def test_aliases_and_abbreviations_failures_are_advisory(self):
+        broken = FakeDataRepoError("no Module.json")
+        rc, published = self._run(_fake_tools(aliases=broken, abbrevs=broken))
+        self.assertEqual((rc, len(published)), (0, 1))  # the slug map still goes out
+
     @contextlib.contextmanager
     def _loguru_errors(self):
         """Collect the stage's ERROR messages (it logs with loguru, not logging)."""
@@ -177,7 +204,7 @@ class ImportToolsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             package = Path(tmp) / "tools" / "wrfdb_data"
             package.mkdir(parents=True)
-            for name in ("__init__", "nicknames", "paths", "releases"):
+            for name in ("__init__", "abbreviations", "nicknames", "paths", "releases", "robot_parts"):
                 (package / f"{name}.py").write_text("", encoding="utf-8")
             (package / "slug_map.py").write_text("def write_slug_map(d):\n    return 'built'\n",
                                                   encoding="utf-8")
