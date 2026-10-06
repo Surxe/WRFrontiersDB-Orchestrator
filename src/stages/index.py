@@ -8,10 +8,14 @@ and commits + pushes `index/`.
   collision fails the stage, since SITE / SITE-DEPLOY would otherwise publish
   against a stale or broken map. An object that should have a page but got no
   slug is a warning.
-* Nicknames (`index/nicknames.json`, pilot first names for the Discord bot's
-  lookups): always rebuilt. Two premium pilots sharing a first name is logged as
-  an error (neither gets it) but doesn't fail the stage: nicknames are a lookup
-  convenience, not worth holding back the Site.
+* Nicknames (`index/nicknames.json`, pilot first names and chassis `<robot> Legs`
+  for the Discord bot's lookups): always rebuilt. Two premium pilots sharing a
+  first name is logged as an error (neither gets it) but doesn't fail the stage:
+  nicknames are a lookup convenience, not worth holding back the Site.
+* Aliases (`index/aliases.json`, robot part names like `Wyrm Chassis`) and
+  abbreviations (`index/abbreviations.json`, `r` -> `relic`): always rebuilt, and
+  advisory like nicknames. An abbreviation whose full form no name has any more
+  is a warning (update the data repo's tools/wrfdb_data/abbreviations.py).
 * Robot release dates + patch manifests: advisory. A failure is logged as an
   error but doesn't fail the pipeline.
 
@@ -90,6 +94,8 @@ def _run(options, repos: Repos, game_version: str) -> int:
     if changes is None:
         return 1
     changes += _build_nicknames(repos, tools)
+    changes += _build_aliases(repos, tools)
+    changes += _build_abbreviations(repos, tools)
     changes += _record_releases(repos, game_version, tools)
 
     if not changes:
@@ -147,6 +153,32 @@ def _build_nicknames(repos: Repos, tools) -> list[str]:
         logger.info(f"nickname '{nickname}' is shared by common pilots only ({', '.join(ids)}); skipped")
     logger.info(f"nicknames: {len(result.nicknames)}, " + ("changed" if result.changed else "unchanged"))
     return ["update nicknames"] if result.changed else []
+
+
+def _build_aliases(repos: Repos, tools) -> list[str]:
+    """Rebuild index/aliases.json. Errors are logged, never raised."""
+    try:
+        result = tools.robot_parts.write_aliases(repos.data_dir)
+    except tools.paths.DataRepoError as exc:
+        logger.error(f"aliases failed (non-fatal): {exc}")
+        return []
+    logger.info(f"aliases: {len(result.aliases)}, " + ("changed" if result.changed else "unchanged"))
+    return ["update aliases"] if result.changed else []
+
+
+def _build_abbreviations(repos: Repos, tools) -> list[str]:
+    """Rebuild index/abbreviations.json. Errors are logged, never raised."""
+    try:
+        result = tools.abbreviations.write_abbreviations(repos.data_dir)
+    except tools.paths.DataRepoError as exc:
+        logger.error(f"abbreviations failed (non-fatal): {exc}")
+        return []
+    for short, full in result.unused:
+        logger.warning(f"abbreviation '{short}' -> '{full}': no published name has it any more; "
+                       "update the data repo's tools/wrfdb_data/abbreviations.py")
+    logger.info(f"abbreviations: {len(result.abbreviations)}, "
+                + ("changed" if result.changed else "unchanged"))
+    return ["update abbreviations"] if result.changed else []
 
 
 def _record_releases(repos: Repos, game_version: str, tools) -> list[str]:

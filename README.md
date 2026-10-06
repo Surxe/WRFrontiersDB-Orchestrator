@@ -18,7 +18,7 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ INDEX ─�
 | EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
-| INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, nicknames, newly-released robots, patch manifests (commit + push) |
+| INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, nicknames, aliases, abbreviations, newly-released robots, patch manifests (commit + push) |
 | SITE | WRFrontiersDB-Site | `npm run sync:slugs` + `npm run build` against the updated data repo |
 | SITE-DEPLOY | WRFrontiersDB-Site | Dispatch the Site's CI workflow (builds + publishes GitHub Pages) and wait for it |
 
@@ -33,10 +33,14 @@ only this box knows, logs the results to its `index` step log, and commits + pus
   Discord bot and any other consumer link to pages through it. Unreadable data or
   a slug collision fails the stage, so SITE / SITE-DEPLOY never publish against a
   broken map; an object that should have a page but got no slug is a warning.
-- **`index/nicknames.json`** (object id -> nicknames; today a pilot's first name, used
-  by the Discord bot's lookups): always rebuilt. Two premium pilots sharing a first
-  name is logged as an error (neither gets it, fix the rule in the data repo) but
-  doesn't fail the stage.
+- **`index/nicknames.json`** (object id -> nicknames; a pilot's first name, a chassis's
+  `<robot> Legs`, used by the Discord bot's lookups): always rebuilt. Two premium
+  pilots sharing a first name is logged as an error (neither gets it, fix the rule in
+  the data repo) but doesn't fail the stage.
+- **`index/aliases.json`** (robot part names, `Wyrm Chassis`) and
+  **`index/abbreviations.json`** (curated shorthands, `r` -> `relic`): always rebuilt,
+  advisory like nicknames. An abbreviation no published name uses any more is a
+  warning; update the data repo's `tools/wrfdb_data/abbreviations.py`.
 - **`index/robot_release_dates.json`**: a new id in `current/Objects/VirtualBot.json`
   is a new robot. It is recorded with what the pipeline can source: `release_date`
   (the in-house version id) and `manifest_id` (`data/steam-download/manifest.txt`).
@@ -54,7 +58,7 @@ only this box knows, logs the results to its `index` step log, and commits + pus
   It runs only when `--should-push-data` is on and a PAT is present; a failed push
   fails the stage, because the Site's CI reads the slug map from the data repo's
   `main`.
-- **By hand:** `PYTHONPATH=tools python3 -m wrfdb_data slug-map|nicknames|releases --no-write`
+- **By hand:** `PYTHONPATH=tools python3 -m wrfdb_data slug-map|nicknames|aliases|abbreviations|releases --no-write`
   in the data checkout.
 
 ### SITE-DEPLOY: keeping the Site in step with the data
@@ -385,7 +389,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--should-push-data`
 
-* **SHOULD_BUILD_INDEX** - Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: the slug map (index/slug_map.json), nicknames (index/nicknames.json), newly-released robots (index/robot_release_dates.json, version id + manifest id) and this patch (index/patch_manifests.json); then commit/push index/. Reads the data repo, so it wants parse/push to have run first.
+* **SHOULD_BUILD_INDEX** - Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: the slug map (index/slug_map.json), nicknames (index/nicknames.json), aliases (index/aliases.json), abbreviations (index/abbreviations.json), newly-released robots (index/robot_release_dates.json, version id + manifest id) and this patch (index/patch_manifests.json); then commit/push index/. Reads the data repo, so it wants parse/push to have run first.
   - Default: `"false"`
   - Command line: `--should-build-index`
 
