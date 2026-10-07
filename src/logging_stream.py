@@ -33,7 +33,7 @@ class RunLogger:
     """Owns one run's timestamped log directory and the orchestrator's loguru sinks.
 
     The orchestrator's OWN output — banners, the preflight gate, the in-process
-    RELEASES stage — goes through loguru, so every line carries a level token a
+    INDEX stage — goes through loguru, so every line carries a level token a
     warning/error counter can match. Two kinds of sink:
 
     * an aggregate ``run.log`` for the whole run, set up here;
