@@ -59,13 +59,22 @@ memory.
 
 ## 4. Triage with Claude
 
+Start Claude in your workspace root - the directory your agent memory is set up
+for (the parent of `$REPOS_DIR` here), not inside a repo - so it has the shared
+memory (e.g. how to check what's deployed). The two skills live in their repos'
+`.claude/skills/`, so from the root they aren't slash commands; name them:
+
 ```bash
-cd <Parser dev checkout>
+cd <workspace root>
 claude
-> /patch-warnings 2026-09-29
+> run the patch-warnings skill from the Parser repo for 2026-09-29
 ```
 
-The `patch-warnings` skill (in the Parser repo, `.claude/skills/`) will:
+The version is optional: without it (or if it has no export) the skill's first
+step, `tools/patch_day.sh resolve`, picks the latest completed pipeline run or
+lists the versions on disk.
+
+The `patch-warnings` skill (Parser repo, `.claude/skills/patch-warnings/`) will:
 
 1. Put the dev checkout on a `patch/<version>` branch and run
    `tools/patch_day.sh init <version>`. That points the dev checkout's `.env` at the
@@ -146,12 +155,10 @@ patch branch deleted) as part of republishing.
 
 ## 7. Republish
 
-From the Orchestrator repo:
+In the same workspace-root session (or a new one started there):
 
 ```bash
-cd $REPOS_DIR/WRFrontiersDB-Orchestrator
-claude
-> /republish-patch 2026-09-29
+> run the republish-patch skill from the Orchestrator repo for 2026-09-29
 ```
 
 The skill checks that the PR merged and that no run is active. It then returns
@@ -164,7 +171,9 @@ already exists. The run re-parses, re-pushes `current/`, re-runs INDEX
 log against the dev checkout's `decisions/<version>.json`. That run is the
 newest completed parse, so groups it no longer produces are confirmed `done`, and
 the report shows what's left (normally just the deferred ones). You also get
-the usual email.
+the usual email. To confirm the new data is live, run `bin/wrf-deployed`: it
+compares the Data commit each frontend serves (its `/deploy.json`) with Data
+`main`.
 
 By hand:
 
