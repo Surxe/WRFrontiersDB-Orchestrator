@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# republish-prep — the deterministic half of the republish skill: gate, check
+# there is something new to publish, then bring the pipeline's Parser checkout
+# up to date before a republish run.
+#
+#   bin/republish-prep [--force] [--dev-checkout <dir>] [<version>]
+#
+# <version> defaults to the version Data currently publishes. The dev checkout
+# defaults to the pipeline's own Parser checkout. REPOS_DIR (env) defaults to
+# /srv/dev/repos, as in options_schema.py. --force skips the nothing-new check.
+#
+# Output: VERSION: the version to run; NEW: each Parser commit not yet published;
+# RESULT: progress; BEHIND: each other pipeline repo that is off main, dirty or
+# behind (pulling those is the user's call); STOP: a failed gate (exit 1).
+set -uo pipefail
+
+stop() { echo "STOP: $*"; exit 1; }
+
+FORCE=0; D=""; V=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1 ;;
+    --dev-checkout) D="${2:?--dev-checkout needs a directory}"; shift ;;
+    -*) stop "unknown option $1" ;;
+    *) V="$1" ;;
+  esac
+  shift
+done
+
+REPOS_DIR="${REPOS_DIR:-/srv/dev/repos}"
+P="$REPOS_DIR/WRFrontiersDB-Parser"
+DATA="$REPOS_DIR/WRFrontiersDB-Data"
+D="${D:-$P}"
+
+active=$(systemctl list-units 'wrf-orchestrator@*' 'wrf-republish-*' --state=activating,active --no-legend)
+[ -z "$active" ] || stop "a pipeline run is active: $active"
+
+for c in "$P" "$D"; do
+  [ -z "$(git -C "$c" status --porcelain)" ] || stop "$c has uncommitted changes"
+done
+
+git -C "$DATA" fetch -q origin || stop "fetch failed in $DATA"
+git -C "$D" fetch -q --prune origin || stop "fetch failed in $D"
+git -C "$P" fetch -q origin || stop "fetch failed in $P"
+
+if [ -z "$V" ]; then
+  V=$(git -C "$DATA" show origin/main:current/version.txt 2>/dev/null) || stop "no current/version.txt in Data; pass a version"
+fi
+echo "VERSION: $V"
+
+p_branch=$(git -C "$P" rev-parse --abbrev-ref HEAD)
+case "$p_branch" in
+  main) ;;
+  "patch/$V") [ "$D" = "$P" ] || stop "$P is on $p_branch, expected main" ;;
+  *) stop "$P is on $p_branch, expected main" ;;
+esac
+
+# The Parser commit Data last published: the Parser-Commit trailer, or for older
+# Data commits the "Parser commit: '<subject> - <date>'" line matched against the log.
+data_msg=$(git -C "$DATA" log origin/main -1 --format=%B --grep="^Update current to version")
+published=$(printf '%s\n' "$data_msg" | sed -n 's/^Parser-Commit: //p')
+if [ -z "$published" ]; then
+  subject_line=$(printf '%s\n' "$data_msg" | sed -n "s/^Parser commit: '\(.*\)'$/\1/p")
+  published=$(git -C "$P" log origin/main --format='%H %s - %ad' --date=short \
+    | awk -v want="$subject_line" 'substr($0, index($0, " ") + 1) == want { print $1; exit }')
+fi
+head=$(git -C "$P" rev-parse origin/main)
+if [ -z "$published" ]; then
+  echo "NEW: unknown (Data's last parse names no Parser commit found on main)"
+elif [ "$published" = "$head" ]; then
+  [ "$FORCE" = 1 ] || stop "nothing new to publish: Data already has Parser ${head:0:7}; rerun with --force to publish anyway"
+  echo "RESULT: nothing new in the Parser (forced)"
+else
+  git -C "$P" log --format='NEW: %h %s' "$published..$head"
+fi
+
+if [ "$D" = "$P" ]; then
+  git -C "$P" switch -q main || stop "could not switch $P to main"
+else
+  git -C "$D" switch -q --detach origin/main || stop "could not detach $D at origin/main"
+fi
+# -D: squash merges aren't ancestors of main
+git -C "$D" branch -D "patch/$V" >/dev/null 2>&1 && echo "RESULT: deleted patch/$V in $D"
+git -C "$P" pull -q --ff-only || stop "fast-forward of $P failed"
+"$P/.venv/bin/pip" install -q -r "$P/requirements.txt" || stop "pip install failed in $P"
+echo "RESULT: $P at $(git -C "$P" log --oneline -1)"
+
+for r in WRFrontiersDB-Orchestrator WRFrontiers-Exporter WRFrontiersDB-Site; do
+  d="$REPOS_DIR/$r"
+  git -C "$d" fetch -q origin
+  branch=$(git -C "$d" rev-parse --abbrev-ref HEAD)
+  behind=$(git -C "$d" rev-list --count HEAD..origin/main)
+  dirty=$(git -C "$d" status --porcelain | wc -l)
+  if [ "$branch" != main ] || [ "$behind" -gt 0 ] || [ "$dirty" -gt 0 ]; then
+    echo "BEHIND: $r on $branch, behind origin/main by $behind, $dirty dirty file(s)"
+  else
+    echo "RESULT: $r on main, up to date"
+  fi
+done

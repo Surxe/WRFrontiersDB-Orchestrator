@@ -150,7 +150,7 @@ from the decisions file: properties handled, skipped + why, fixes, open items,
 verification). Review and merge it on GitHub as usual (squash or not is your
 call).
 
-`/republish-patch` does the post-merge cleanup (dev checkout back to `main`,
+`/republish` does the post-merge cleanup (dev checkout back to `main`,
 patch branch deleted) as part of republishing.
 
 ## 7. Republish
@@ -158,10 +158,11 @@ patch branch deleted) as part of republishing.
 In the same workspace-root session (or a new one started there):
 
 ```bash
-> run the republish-patch skill from the Orchestrator repo for 2026-09-29
+> run the republish skill from the Orchestrator repo
 ```
 
-The skill checks that the PR merged and that no run is active. It then returns
+The skill checks that no run is active and that Parser `main` has commits Data
+hasn't published yet (the version defaults to the one Data publishes). It then returns
 the dev checkout to `main` (deleting the patch branch), fast-forwards the
 pipeline's Parser checkout and syncs its venv, and re-runs
 `sudo systemctl start wrf-orchestrator@<version>.service`. Nothing is re-downloaded
