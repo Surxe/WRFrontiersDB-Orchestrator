@@ -228,5 +228,11 @@ tools/patch_day.sh viewer                             # asset viewer on :8765
   `main` each is. If the Site is behind after a run, SITE-DEPLOY didn't deploy:
   check the run report's `site-ci` step. The output links the run that built
   what's live.
+- **Run failed at INDEX with `build codes: ...` errors.** The patch changed a
+  module in a way that would change what published `/models?a=<code>` links mean
+  (a lost socket or fit, a new required socket, a removed module). Nothing was
+  written and the Site wasn't rebuilt. The `index` step log names each module;
+  decide the fix in the data repo's `tools/wrfdb_data/build_codes.py` (rules in
+  its `docs/build-codes.md`), then republish.
 - **The report says `baseline: none`.** No earlier completed pipeline parse
   exists to compare against, so there are no NEW markers. Grouping still works.

@@ -216,7 +216,8 @@ OPTIONS_SCHEMA = {
         "default": False,
         "section": "Stages",
         "help": "Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: "
-                "the slug map (index/slug_map.json), nicknames (index/nicknames.json), "
+                "the slug map (index/slug_map.json), build codes (index/build_codes.json + "
+                "index/build_code_vectors.json), nicknames (index/nicknames.json), "
                 "aliases (index/aliases.json), abbreviations (index/abbreviations.json), "
                 "newly-released robots (index/robot_release_dates.json, version id + "
                 "manifest id) and this "

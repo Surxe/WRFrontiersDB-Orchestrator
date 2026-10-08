@@ -18,7 +18,7 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ INDEX ─�
 | EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
-| INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, nicknames, aliases, abbreviations, newly-released robots, patch manifests (commit + push) |
+| INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, build codes, nicknames, aliases, abbreviations, newly-released robots, patch manifests (commit + push) |
 | SITE | WRFrontiersDB-Site | `npm run sync:slugs` + `npm run build` against the updated data repo |
 | SITE-DEPLOY | WRFrontiersDB-Site | Dispatch the Site's CI workflow (builds + publishes GitHub Pages) and wait for it |
 
@@ -33,6 +33,12 @@ only this box knows, logs the results to its `index` step log, and commits + pus
   Discord bot and any other consumer link to pages through it. Unreadable data or
   a slug collision fails the stage, so SITE / SITE-DEPLOY never publish against a
   broken map; an object that should have a page but got no slug is a warning.
+- **`index/build_codes.json`** + **`build_code_vectors.json`** (the registry behind the
+  Site's short `/models?a=<code>` build links): always rebuilt. The registry only
+  grows at the end, so published codes keep their meaning; a data change that would
+  break that (a module losing a socket or a fit, gaining a required socket,
+  disappearing) is logged per module and fails the stage, so SITE / SITE-DEPLOY never
+  publish against it. The rules are in the data repo's `docs/build-codes.md`.
 - **`index/nicknames.json`** (object id -> nicknames; a pilot's first name, a chassis's
   `<robot> Legs`, used by the Discord bot's lookups): always rebuilt. Two premium
   pilots sharing a first name is logged as an error (neither gets it, fix the rule in
@@ -390,7 +396,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Default: `"false"`
   - Command line: `--should-push-data`
 
-* **SHOULD_BUILD_INDEX** - Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: the slug map (index/slug_map.json), nicknames (index/nicknames.json), aliases (index/aliases.json), abbreviations (index/abbreviations.json), newly-released robots (index/robot_release_dates.json, version id + manifest id) and this patch (index/patch_manifests.json); then commit/push index/. Reads the data repo, so it wants parse/push to have run first.
+* **SHOULD_BUILD_INDEX** - Rebuild the data repo's index/ from current/ with its tools/wrfdb_data: the slug map (index/slug_map.json), build codes (index/build_codes.json + index/build_code_vectors.json), nicknames (index/nicknames.json), aliases (index/aliases.json), abbreviations (index/abbreviations.json), newly-released robots (index/robot_release_dates.json, version id + manifest id) and this patch (index/patch_manifests.json); then commit/push index/. Reads the data repo, so it wants parse/push to have run first.
   - Default: `"false"`
   - Command line: `--should-build-index`
 

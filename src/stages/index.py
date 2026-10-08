@@ -8,6 +8,13 @@ and commits + pushes `index/`.
   collision fails the stage, since SITE / SITE-DEPLOY would otherwise publish
   against a stale or broken map. An object that should have a page but got no
   slug is a warning.
+* Build codes (`index/build_codes.json` + `build_code_vectors.json`, the registry
+  behind the Site's short `/models?a=<code>` links): always rebuilt, and fatal like
+  the slug map. The registry is append-only; a data change that would change what
+  a published code means (a module losing a socket or a fit, gaining a required
+  socket, disappearing) is an error, nothing is written, and the stage fails so
+  SITE / SITE-DEPLOY never ship against it. Fix it in the data repo's
+  tools/wrfdb_data/build_codes.py (rules in its docs/build-codes.md).
 * Nicknames (`index/nicknames.json`, pilot first names and chassis `<robot> Legs`
   for the Discord bot's lookups): always rebuilt. Two premium pilots sharing a
   first name is logged as an error (neither gets it) but doesn't fail the stage:
@@ -93,6 +100,10 @@ def _run(options, repos: Repos, game_version: str) -> int:
     changes = _build_slug_map(repos, tools)
     if changes is None:
         return 1
+    build_code_changes = _build_build_codes(repos, tools)
+    if build_code_changes is None:
+        return 1
+    changes += build_code_changes
     changes += _build_nicknames(repos, tools)
     changes += _build_aliases(repos, tools)
     changes += _build_abbreviations(repos, tools)
@@ -136,6 +147,27 @@ def _build_slug_map(repos: Repos, tools) -> list[str] | None:
     logger.info(f"slug map: {len(result.slug_map)} slugs, "
                 + ("changed" if result.changed else "unchanged"))
     return ["update slug map"] if result.changed else []
+
+
+def _build_build_codes(repos: Repos, tools) -> list[str] | None:
+    """Rebuild index/build_codes.json + vectors. Returns the commit-message bits, or None on failure."""
+    try:
+        result = tools.build_codes.write_build_codes(repos.data_dir)
+    except tools.paths.DataRepoError as exc:
+        logger.error(f"build codes failed: {exc}")
+        return None
+
+    for error in result.errors:
+        logger.error(f"build codes: {error}")
+    if result.errors:
+        logger.error("build codes: not written; this data change would change what published "
+                     "codes mean. See the data repo's docs/build-codes.md.")
+        return None
+    for addition in result.appended:
+        logger.info(f"build codes: appended {addition}")
+    logger.info(f"build codes: {len(result.registry['modules'])} modules, "
+                + ("changed" if result.changed else "unchanged"))
+    return ["update build codes"] if result.changed else []
 
 
 def _build_nicknames(repos: Repos, tools) -> list[str]:

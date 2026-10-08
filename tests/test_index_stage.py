@@ -32,11 +32,13 @@ class FakeDataRepoError(RuntimeError):
     pass
 
 
-def _fake_tools(*, slugs=None, nicks=None, aliases=None, abbrevs=None, releases_error=False, new_bots=()):
+def _fake_tools(*, slugs=None, nicks=None, aliases=None, abbrevs=None, codes=None, releases_error=False,
+                new_bots=()):
     slugs = slugs or SimpleNamespace(slug_map={"a": "a"}, skipped=[], collisions=[], changed=True)
     nicks = nicks or SimpleNamespace(nicknames={}, conflicts=[], ambiguous=[], changed=False)
     aliases = aliases or SimpleNamespace(aliases={}, changed=False)
     abbrevs = abbrevs or SimpleNamespace(abbreviations={}, unused=[], changed=False)
+    codes = codes or SimpleNamespace(registry={"modules": {}}, appended=[], errors=[], changed=False)
 
     def write_slug_map(data_dir):
         if isinstance(slugs, Exception):
@@ -52,6 +54,11 @@ def _fake_tools(*, slugs=None, nicks=None, aliases=None, abbrevs=None, releases_
         if isinstance(aliases, Exception):
             raise aliases
         return aliases
+
+    def write_build_codes(data_dir):
+        if isinstance(codes, Exception):
+            raise codes
+        return codes
 
     def write_abbreviations(data_dir):
         if isinstance(abbrevs, Exception):
@@ -73,6 +80,7 @@ def _fake_tools(*, slugs=None, nicks=None, aliases=None, abbrevs=None, releases_
         nicknames=SimpleNamespace(write_nicknames=write_nicknames),
         robot_parts=SimpleNamespace(write_aliases=write_aliases),
         abbreviations=SimpleNamespace(write_abbreviations=write_abbreviations),
+        build_codes=SimpleNamespace(write_build_codes=write_build_codes),
         releases=SimpleNamespace(record_releases=record_releases,
                                  record_patch_manifests=record_patch_manifests),
     )
@@ -183,6 +191,24 @@ class IndexStageTests(unittest.TestCase):
         rc, published = self._run(_fake_tools(), push=False)
         self.assertEqual((rc, published), (0, []))
 
+    def test_changed_build_codes_are_pushed(self):
+        unchanged = SimpleNamespace(slug_map={}, skipped=[], collisions=[], changed=False)
+        codes = SimpleNamespace(registry={"modules": {"m": {}}}, appended=["module m"], errors=[],
+                                changed=True)
+        rc, published = self._run(_fake_tools(slugs=unchanged, codes=codes))
+        self.assertEqual((rc, len(published)), (0, 1))
+        self.assertIn("update build codes", published[0][2])
+
+    def test_build_code_break_fails_before_pushing(self):
+        codes = SimpleNamespace(registry={"modules": {}}, appended=[], changed=False,
+                                errors=["DA_Module_TorsoAres.1 lost its Ability socket"])
+        rc, published = self._run(_fake_tools(codes=codes))
+        self.assertEqual((rc, published), (1, []))  # the changed slug map isn't pushed either
+
+    def test_unreadable_build_codes_fail(self):
+        rc, published = self._run(_fake_tools(codes=FakeDataRepoError("bad registry")))
+        self.assertEqual((rc, published), (1, []))
+
     def test_failed_push_fails(self):
         rc, _published = self._run(_fake_tools(),
                                    publish_error=data_repo.DataRepoGitError("rejected"))
@@ -204,7 +230,8 @@ class ImportToolsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             package = Path(tmp) / "tools" / "wrfdb_data"
             package.mkdir(parents=True)
-            for name in ("__init__", "abbreviations", "nicknames", "paths", "releases", "robot_parts"):
+            for name in ("__init__", "abbreviations", "build_codes", "nicknames", "paths", "releases",
+                         "robot_parts"):
                 (package / f"{name}.py").write_text("", encoding="utf-8")
             (package / "slug_map.py").write_text("def write_slug_map(d):\n    return 'built'\n",
                                                   encoding="utf-8")
