@@ -18,6 +18,18 @@ from pathlib import Path
 DATA_REPO_SLUG = "Surxe/WRFrontiersDB-Data"
 TOOLS_REL = Path("tools")
 
+GIT_IDENTITY = {
+    "GIT_AUTHOR_NAME": "Orchestrator",
+    "GIT_AUTHOR_EMAIL": "orchestrator@example.com",
+    "GIT_COMMITTER_NAME": "Orchestrator",
+    "GIT_COMMITTER_EMAIL": "orchestrator@example.com",
+}
+"""The index commits' author, set per git process like the PAT: the data clone is
+shared (people and the Parser commit there too), so nothing goes in its .git/config."""
+
+LEGACY_LOCAL_CONFIG = ("user.email", "user.name")
+"""Written to the clone's .git/config by older versions; removed before publishing."""
+
 
 class DataRepoGitError(RuntimeError):
     """A git operation on the data repo failed (the PAT is redacted from the message)."""
@@ -61,16 +73,18 @@ def _git_auth_env(pat: str) -> dict[str, str]:
     }
 
 
-def _git(args: list[str], cwd: Path, pat: str | None = None) -> subprocess.CompletedProcess:
+def _git(args: list[str], cwd: Path, pat: str | None = None, *,
+         ok_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"})
+    env.update(GIT_IDENTITY)
     if pat:
         env.update(_git_auth_env(pat))
     proc = subprocess.run(
         ["git", *args], cwd=str(cwd), env=env,
         capture_output=True, text=True, encoding="utf-8", errors="ignore",
     )
-    if proc.returncode != 0:
+    if proc.returncode not in ok_codes:
         out = (proc.stdout or "") + (proc.stderr or "")
         if pat:
             out = out.replace(pat, "********").replace(_basic_auth_value(pat), "********")
@@ -84,8 +98,9 @@ def publish(data_dir: Path, paths: list[Path], *, pat: str, branch: str, message
     Returns False when git sees no change, so nothing was committed.
     """
     data_dir = Path(data_dir)
-    _git(["config", "--local", "user.email", "orchestrator@example.com"], data_dir)
-    _git(["config", "--local", "user.name", "Orchestrator"], data_dir)
+    # Exit 5: the key wasn't set.
+    for key in LEGACY_LOCAL_CONFIG:
+        _git(["config", "--local", "--unset-all", key], data_dir, ok_codes=(0, 5))
     # Plain URL (the PAT goes in via _git's env): also scrubs a PAT embedded by older versions.
     _git(["remote", "set-url", "origin", f"https://github.com/{DATA_REPO_SLUG}.git"], data_dir)
     rel_paths = [str(p) for p in paths]
