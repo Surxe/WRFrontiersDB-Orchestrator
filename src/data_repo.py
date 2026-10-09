@@ -33,6 +33,7 @@ def import_tools(data_dir: Path):
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)
     import wrfdb_data.abbreviations  # noqa: F401
+    import wrfdb_data.build_codes  # noqa: F401
     import wrfdb_data.nicknames  # noqa: F401
     import wrfdb_data.paths  # noqa: F401
     import wrfdb_data.releases  # noqa: F401
