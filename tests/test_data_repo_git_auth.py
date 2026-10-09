@@ -61,6 +61,35 @@ class TestGitAuth(unittest.TestCase):
         self.assertNotIn(FAKE_PAT, str(ctx.exception))
         self.assertNotIn(encoded, str(ctx.exception))
 
+    def test_real_git_publish_commits_as_orchestrator_and_scrubs_legacy_config(self):
+        """The identity comes from the environment; older versions' local identity is removed."""
+        real_run = subprocess.run
+
+        def run_except_push(cmd, **kwargs):
+            if cmd[1] == "push":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return real_run(cmd, **kwargs)
+
+        with tempfile.TemporaryDirectory() as repo_dir:
+            repo = Path(repo_dir)
+            subprocess.run(["git", "init", "-q", repo_dir], check=True)
+            subprocess.run(["git", "-C", repo_dir, "remote", "add", "origin", PLAIN_URL], check=True)
+            for key, value in (("user.name", "Orchestrator"), ("user.email", "orchestrator@example.com")):
+                subprocess.run(["git", "-C", repo_dir, "config", "--local", key, value], check=True)
+            (repo / "index").mkdir()
+            (repo / "index" / "x.json").write_text("{}")
+
+            with mock.patch.object(data_repo.subprocess, "run", side_effect=run_except_push):
+                self.assertTrue(data_repo.publish(repo, [Path("index")], pat=FAKE_PAT,
+                                                  branch="main", message="m"))
+
+            config = (repo / ".git" / "config").read_text()
+            self.assertNotIn("[user]", config)
+            self.assertNotIn("orchestrator@example.com", config)
+            log = subprocess.run(["git", "-C", repo_dir, "log", "-1", "--format=%an <%ae> / %cn <%ce>"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(log, "Orchestrator <orchestrator@example.com> / Orchestrator <orchestrator@example.com>")
+
     def test_real_git_sees_header_and_config_stays_clean(self):
         with tempfile.TemporaryDirectory() as repo_dir:
             subprocess.run(["git", "init", "-q", repo_dir], check=True)
