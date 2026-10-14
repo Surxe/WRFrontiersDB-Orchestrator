@@ -88,14 +88,25 @@ def _configure_logging() -> None:
     )
 
 
-def query_pics(retries: int, delay: float) -> dict:
+# CM servers tried per attempt before connect() gives up. steam's own default
+# (retry=0) means "retry forever", which is what anonymous_login() uses when it
+# connects implicitly -- so a Steam directory/CM outage hung the probe silently
+# until systemd's TimeoutStartSec killed it. We always connect explicitly.
+CONNECT_RETRIES = 3
+
+
+def query_pics(retries: int, delay: float, attempt_timeout: float) -> dict:
     """Return {'gid', 'buildid', 'timeupdated'} from an anonymous PICS query.
 
-    Retries transient CM/login failures with a fixed backoff. Raises ProbeError
-    if every attempt fails or the product-info shape is not what we expect.
+    Retries transient CM/login failures with a fixed backoff. Each attempt
+    (connect + login + product-info) is hard-bounded by `attempt_timeout`
+    seconds, so a Steam outage ends as a logged ProbeError rather than a hang.
+    Raises ProbeError if every attempt fails or the product-info shape is not
+    what we expect.
     """
     # Imported lazily so `import probe` (e.g. from a future trigger stage or a
     # test) doesn't pull in the whole gevent/steam client stack unless we query.
+    import gevent
     from steam.client import SteamClient
     from steam.enums import EResult
 
@@ -103,31 +114,37 @@ def query_pics(retries: int, delay: float) -> dict:
     for attempt in range(1, retries + 1):
         client = SteamClient()
         try:
-            result = client.anonymous_login()
-            if result != EResult.OK:
-                last_err = f"anonymous_login returned {result!r}"
-                raise ProbeError(last_err)
+            with gevent.Timeout(attempt_timeout,
+                                ProbeError(f"attempt timed out after {attempt_timeout:g}s")):
+                if not client.connect(retry=CONNECT_RETRIES):
+                    last_err = "could not connect to any Steam CM"
+                    raise ProbeError(last_err)
 
-            info = client.get_product_info(apps=[APP_ID])
-            if not info:
-                last_err = "get_product_info returned no data"
-                raise ProbeError(last_err)
+                result = client.anonymous_login()
+                if result != EResult.OK:
+                    last_err = f"anonymous_login returned {result!r}"
+                    raise ProbeError(last_err)
 
-            try:
-                app = info["apps"][APP_ID]
-                depot = app["depots"][DEPOT_ID]
-                gid = depot["manifests"]["public"]["gid"]
-                branch = app["depots"]["branches"]["public"]
-            except (KeyError, TypeError) as exc:
-                # A shape change is not transient — surface it, but still as an
-                # error (never as a patch), so we don't fire on garbage.
-                raise ProbeError(f"unexpected PICS product-info shape: {exc!r}") from exc
+                info = client.get_product_info(apps=[APP_ID])
+                if not info:
+                    last_err = "get_product_info returned no data"
+                    raise ProbeError(last_err)
 
-            return {
-                "gid": str(gid),
-                "buildid": branch.get("buildid"),
-                "timeupdated": branch.get("timeupdated"),
-            }
+                try:
+                    app = info["apps"][APP_ID]
+                    depot = app["depots"][DEPOT_ID]
+                    gid = depot["manifests"]["public"]["gid"]
+                    branch = app["depots"]["branches"]["public"]
+                except (KeyError, TypeError) as exc:
+                    # A shape change is not transient — surface it, but still as an
+                    # error (never as a patch), so we don't fire on garbage.
+                    raise ProbeError(f"unexpected PICS product-info shape: {exc!r}") from exc
+
+                return {
+                    "gid": str(gid),
+                    "buildid": branch.get("buildid"),
+                    "timeupdated": branch.get("timeupdated"),
+                }
         except ProbeError as exc:
             last_err = str(exc)
             logger.warning("PICS query attempt {}/{} failed: {}", attempt, retries, last_err)
@@ -135,10 +152,13 @@ def query_pics(retries: int, delay: float) -> dict:
             last_err = repr(exc)
             logger.warning("PICS query attempt {}/{} errored: {}", attempt, retries, last_err)
         finally:
-            try:
-                client.logout()
-            except Exception:  # noqa: BLE001 - logout best-effort; never mask the real error
-                pass
+            # logout() only disconnects a logged-on client; disconnect() also
+            # tears down a connected-but-not-logged-on one (e.g. after a timeout).
+            for close in (client.logout, client.disconnect):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001 - best-effort; never mask the real error
+                    pass
 
         if attempt < retries:
             time.sleep(delay)
@@ -199,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--retry-delay", type=float,
                         default=float(os.environ.get("WRF_PROBE_RETRY_DELAY", 5)),
                         help="seconds between retries (default 5)")
+    # Keep retries * attempt-timeout + (retries - 1) * retry-delay under the
+    # unit's TimeoutStartSec (120s): 3 * 30 + 2 * 5 = 100s worst case.
+    parser.add_argument("--attempt-timeout", type=float,
+                        default=float(os.environ.get("WRF_PROBE_ATTEMPT_TIMEOUT", 30)),
+                        help="hard cap in seconds on each PICS attempt (default 30)")
     parser.add_argument("--on-patch-cmd", default=os.environ.get("WRF_PROBE_ON_PATCH_CMD"),
                         help="command run on patch detection, with {version} "
                         "substituted (split shell-style, run WITHOUT a shell). The "
@@ -211,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     _configure_logging()
 
     try:
-        current = query_pics(args.retries, args.retry_delay)
+        current = query_pics(args.retries, args.retry_delay, args.attempt_timeout)
     except ProbeError as exc:
         logger.error("probe failed, treating as no change (state untouched): {}", exc)
         emit({"event": "probe-error", "error": str(exc)})
