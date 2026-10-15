@@ -38,7 +38,7 @@ OPTIONS_SCHEMA = {
         "default": Path("/srv/dev/wrf"),
         "section": "Paths",
         "help": "Shared root for all game data. Every stage directory "
-                "(steam-download, mapper, exports, parsed, textures, prefix, "
+                "(steam-download, mapper, exports, maps, parsed, textures, prefix, "
                 "proton) is derived from this. The only heavy path knob.",
         "example": Path("/srv/dev/wrf"),
     },
@@ -276,12 +276,16 @@ OPTIONS_SCHEMA = {
         "env": "BATCH_EXPORT_RELEASE",
         "arg": "--batch-export-release",
         "type": str,
-        "default": "latest",
+        # The map export (SHOULD_EXPORT_MAPS) needs BatchExport's map mode, which is only
+        # in a pre-release until CUE4P-BatchExport PR #27 is merged and released; 'latest'
+        # skips pre-releases. Back to 'latest' once a stable release has the map mode.
+        "default": "v1.8.0-test.1",
         "section": "Exporter",
         "help": "Forwarded to the Exporter: CUE4P-BatchExport release tag to install. "
                 "'latest' uses the newest stable release; set a tag (e.g. "
                 "'v1.6.2-test.1') to pin a version. Roll back by setting this to "
-                "'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.",
+                "'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on. Pinned to the "
+                "map-export pre-release until the map mode is in a stable release.",
         "links": {"Releases": "https://github.com/Surxe/CUE4P-BatchExport/releases"},
         "depends_on": ["SHOULD_EXPORT"],
     },
@@ -352,6 +356,27 @@ OPTIONS_SCHEMA = {
         "help": "Forwarded to the Exporter/Parser: export and push textures.",
         "depends_on": ["SHOULD_EXPORT"],
     },
+    "SHOULD_EXPORT_MAPS": {
+        "env": "SHOULD_EXPORT_MAPS",
+        "arg": "--should-export-maps",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: export the released maps with BatchExport's "
+                "map mode into data/maps/<version> (about 1 GB), for the Parser's map cook. "
+                "Reads the map list from the asset export, so it runs after BatchExport.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
+    "FORCE_EXPORT_MAPS": {
+        "env": "FORCE_EXPORT_MAPS",
+        "arg": "--force-export-maps",
+        "type": bool,
+        "default": False,
+        "section": "Exporter",
+        "help": "Forwarded to the Exporter: re-run the map export even if "
+                "data/maps/<version> is not empty.",
+        "depends_on": ["SHOULD_EXPORT"],
+    },
     "HEADLESS": {
         "env": "HEADLESS",
         "arg": "--headless",
@@ -361,5 +386,19 @@ OPTIONS_SCHEMA = {
         "help": "Forwarded to the Exporter mapper step: launch under gamescope's "
                 "headless backend. Default true (unattended dev runs).",
         "depends_on": ["SHOULD_EXPORT"],
+    },
+
+    # ---------------------------------------------------- Parser sub-steps (fwd)
+    "SHOULD_PARSE_MAPS": {
+        "env": "SHOULD_PARSE_MAPS",
+        "arg": "--should-parse-maps",
+        "type": bool,
+        "default": True,
+        "section": "Parser",
+        "help": "Forwarded to the Parser: cook the 3D maps from data/maps/<version> into "
+                "the parsed output's Maps/ (and Objects/Map.json). On by default: the push "
+                "replaces the data repo's current/ with the parsed output, so a parse "
+                "without maps would remove them from the Site. Unchanged maps come from "
+                "the Parser's cook cache in seconds.",
     },
 }

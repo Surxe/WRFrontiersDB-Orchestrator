@@ -83,15 +83,19 @@ class Repos:
         # Dated per patch, e.g. .../data/textures/2026-08-22
         return self.data_root / "textures" / game_version
 
+    def maps_dir_for_version(self, game_version: str) -> Path:
+        # Dated per patch, e.g. .../data/maps/2026-08-22 (the map export, ~1 GB)
+        return self.data_root / "maps" / game_version
+
     def prune_old_versions(self, keep: int = 2) -> None:
         """Delete old version directories, keeping only the newest `keep` patches.
 
-        Applied to exports, parsed, textures, and mapper after a successful patch
+        Applied to exports, parsed, textures, mapper and maps after a successful patch
         run. Sorts by directory name (ISO date string); deletes oldest, keeping
         newest. A no-op if fewer than keep+1 versions exist.
         """
         import shutil
-        for subdir in ["exports", "parsed", "textures", "mapper"]:
+        for subdir in ["exports", "parsed", "textures", "mapper", "maps"]:
             parent = self.data_root / subdir
             if not parent.is_dir():
                 continue

@@ -15,8 +15,8 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ INDEX ─�
 
 | Stage | Repo | What it does |
 | --- | --- | --- |
-| EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) |
-| PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures |
+| EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) → map export (BatchExport's map mode, `data/maps/<version>`) |
+| PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures; cook the 3D maps into `Maps/` |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
 | INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, build codes, nicknames, aliases, abbreviations, newly-released robots, patch manifests (commit + push) |
 | SITE | WRFrontiersDB-Site | `npm run sync:slugs` + `npm run build` against the updated data repo |
@@ -309,7 +309,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
 
 #### Paths
 
-* **WRF_ROOT** - Shared root for all game data. Every stage directory (steam-download, mapper, exports, parsed, textures, prefix, proton) is derived from this. The only heavy path knob.
+* **WRF_ROOT** - Shared root for all game data. Every stage directory (steam-download, mapper, exports, maps, parsed, textures, prefix, proton) is derived from this. The only heavy path knob.
   - Example: `"/srv/dev/wrf"`
   - Default: `"/srv/dev/wrf"`
   - Command line: `--wrf-root`
@@ -421,8 +421,8 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Command line: `--force-download-dependencies`
   - Depends on: `SHOULD_EXPORT`
 
-* **BATCH_EXPORT_RELEASE** - Forwarded to the Exporter: CUE4P-BatchExport release tag to install. 'latest' uses the newest stable release; set a tag (e.g. 'v1.6.2-test.1') to pin a version. Roll back by setting this to 'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.
-  - Default: `"latest"`
+* **BATCH_EXPORT_RELEASE** - Forwarded to the Exporter: CUE4P-BatchExport release tag to install. 'latest' uses the newest stable release; set a tag (e.g. 'v1.6.2-test.1') to pin a version. Roll back by setting this to 'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on. Pinned to the map-export pre-release until the map mode is in a stable release.
+  - Default: `"v1.8.0-test.1"`
   - Command line: `--batch-export-release`
   - Depends on: `SHOULD_EXPORT`
   - [Releases](https://github.com/Surxe/CUE4P-BatchExport/releases)
@@ -462,10 +462,27 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Command line: `--should-export-textures`
   - Depends on: `SHOULD_EXPORT`
 
+* **SHOULD_EXPORT_MAPS** - Forwarded to the Exporter: export the released maps with BatchExport's map mode into data/maps/<version> (about 1 GB), for the Parser's map cook. Reads the map list from the asset export, so it runs after BatchExport.
+  - Default: `"false"`
+  - Command line: `--should-export-maps`
+  - Depends on: `SHOULD_EXPORT`
+
+* **FORCE_EXPORT_MAPS** - Forwarded to the Exporter: re-run the map export even if data/maps/<version> is not empty.
+  - Default: `"false"`
+  - Command line: `--force-export-maps`
+  - Depends on: `SHOULD_EXPORT`
+
 * **HEADLESS** - Forwarded to the Exporter mapper step: launch under gamescope's headless backend. Default true (unattended dev runs).
   - Default: `"true"`
   - Command line: `--headless`
   - Depends on: `SHOULD_EXPORT`
+
+
+#### Parser
+
+* **SHOULD_PARSE_MAPS** - Forwarded to the Parser: cook the 3D maps from data/maps/<version> into the parsed output's Maps/ (and Objects/Map.json). On by default: the push replaces the data repo's current/ with the parsed output, so a parse without maps would remove them from the Site. Unchanged maps come from the Parser's cook cache in seconds.
+  - Default: `"true"`
+  - Command line: `--should-parse-maps`
 
 
 <!-- END_GENERATED_OPTIONS -->

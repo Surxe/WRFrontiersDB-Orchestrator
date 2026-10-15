@@ -58,6 +58,7 @@ _PATCH_DAY_FLAGS = (
     "should_get_mapper",
     "should_batch_export",
     "should_export_textures",
+    "should_export_maps",
 )
 
 # --force-patch-day: a patch day that re-does work whose output already exists.
@@ -67,6 +68,7 @@ _FORCE_FLAGS = (
     "force_steam_download",
     "force_get_mapper",
     "force_export",
+    "force_export_maps",
 )
 
 
@@ -177,7 +179,8 @@ if __name__ == "__main__":
         action="store_true",
         help="Like --patch-day, but also forces every stage to re-do work whose "
              "output already exists (--force-download-dependencies, "
-             "--force-steam-download, --force-get-mapper, --force-export). "
+             "--force-steam-download, --force-get-mapper, --force-export, "
+             "--force-export-maps). "
              "Explicit --should-*/--force-* flags still override the preset.",
     )
     ArgumentWriter().add_arguments(parser)

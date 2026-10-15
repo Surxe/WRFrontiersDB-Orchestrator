@@ -1,8 +1,8 @@
 """Parse stage — drives WRFrontiersDB-Parser.
 
 Reads the Exporter's JSON (EXPORT_DIR == the Exporter's OUTPUT_DATA_DIR, both
-derived from WRF_ROOT), parses it, and optionally pushes the result to the data
-repo. The data-repo PAT is passed via the environment, not argv.
+derived from WRF_ROOT) and its map export (MAPS_EXPORT_DIR == OUTPUT_MAPS_DIR),
+parses them, and optionally pushes the result to the data repo. The data-repo PAT is passed via the environment, not argv.
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         "--should-reclone", "true",
         "--gh-data-repo-dir", str(repos.data_dir),
         "--should-push-textures", b(options.should_export_textures),
+        "--should-parse-maps", b(options.should_parse_maps),
+        "--maps-export-dir", str(repos.maps_dir_for_version(game_version)),
     ]
 
     env: dict[str, str] = {}
