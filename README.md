@@ -15,7 +15,7 @@ preflight ──▶ EXPORT ──▶ PARSE ──▶ (PUSH) ──▶ INDEX ─�
 
 | Stage | Repo | What it does |
 | --- | --- | --- |
-| EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → BatchExport (JSON) → map export (BatchExport's map mode, `data/maps/<version>`) |
+| EXPORT | WRFrontiers-Exporter | Steam download → mapper (`.usmap`) → WRFrontiersDB-CUE4Parse: assets, meshes and maps in one run, under `BATCH_EXPORT_MEMORY_MAX` (maps into `exports/<version>/map-export`) |
 | PARSE | WRFrontiersDB-Parser | Parse the exported JSON → parsed data + textures; cook the 3D maps into `Maps/` |
 | PUSH | WRFrontiersDB-Parser | Push parsed data to WRFrontiersDB-Data (`current/` swap + archive) |
 | INDEX | WRFrontiersDB-Data | Rebuild the data repo's `index/` from `current/` with its `tools/wrfdb_data`: the slug map, build codes, nicknames, aliases, abbreviations, newly-released robots, patch manifests (commit + push) |
@@ -274,7 +274,7 @@ common run is one flag. They only set gates you leave unset, so an explicit
   but named and explicit.
 - **`--force-patch-day`** — `--patch-day` plus every `--force-*` flag, so each
   stage re-does work whose output already exists (re-download dependencies,
-  re-download the game, re-generate the mapper, re-run BatchExport).
+  re-download the game, re-generate the mapper, re-run the export).
 
 ### Launch on the workstation
 
@@ -384,7 +384,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
 
 #### Stages
 
-* **SHOULD_EXPORT** - Run the Exporter (Steam download, mapper, BatchExport).
+* **SHOULD_EXPORT** - Run the Exporter (Steam download, mapper, WRFrontiersDB-CUE4Parse export).
   - Default: `"false"`
   - Command line: `--should-export`
 
@@ -421,11 +421,11 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Command line: `--force-download-dependencies`
   - Depends on: `SHOULD_EXPORT`
 
-* **BATCH_EXPORT_RELEASE** - Forwarded to the Exporter: CUE4P-BatchExport release tag to install. 'latest' uses the newest stable release; set a tag (e.g. 'v1.6.2-test.1') to pin a version. Roll back by setting this to 'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on. Pinned to the map-export pre-release until the map mode is in a stable release.
-  - Default: `"v1.8.0-test.1"`
+* **BATCH_EXPORT_RELEASE** - Forwarded to the Exporter: WRFrontiersDB-CUE4Parse release tag to install. 'latest' uses the newest stable release; set a tag (e.g. 'v2.0.0-test.1') to pin a version. Roll back by setting this to 'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.
+  - Default: `"latest"`
   - Command line: `--batch-export-release`
   - Depends on: `SHOULD_EXPORT`
-  - [Releases](https://github.com/Surxe/CUE4P-BatchExport/releases)
+  - [Releases](https://github.com/Surxe/WRFrontiersDB-CUE4Parse/releases)
 
 * **SHOULD_DOWNLOAD_STEAM_GAME** - Forwarded to the Exporter: download/update the game via DepotDownloader.
   - Default: `"false"`
@@ -447,29 +447,24 @@ directly as dev works too (re-sourcing nvm is a no-op).
   - Command line: `--force-get-mapper`
   - Depends on: `SHOULD_EXPORT`
 
-* **SHOULD_BATCH_EXPORT** - Forwarded to the Exporter: run BatchExport to produce JSON.
+* **SHOULD_BATCH_EXPORT** - Forwarded to the Exporter: run WRFrontiersDB-CUE4Parse, which exports the assets, meshes and maps (maps into exports/<version>/map-export).
   - Default: `"false"`
   - Command line: `--should-batch-export`
   - Depends on: `SHOULD_EXPORT`
 
-* **FORCE_EXPORT** - Forwarded to the Exporter: re-run BatchExport even if the output directory is not empty.
+* **FORCE_EXPORT** - Forwarded to the Exporter: re-run the export even if the output directory is not empty.
   - Default: `"false"`
   - Command line: `--force-export`
   - Depends on: `SHOULD_EXPORT`
 
-* **SHOULD_EXPORT_TEXTURES** - Forwarded to the Exporter/Parser: export and push textures.
+* **SHOULD_EXPORT_TEXTURES** - Forwarded to the Parser: push textures. (The export always exports them.)
   - Default: `"true"`
   - Command line: `--should-export-textures`
   - Depends on: `SHOULD_EXPORT`
 
-* **SHOULD_EXPORT_MAPS** - Forwarded to the Exporter: export the released maps with BatchExport's map mode into data/maps/<version> (about 1 GB), for the Parser's map cook. Reads the map list from the asset export, so it runs after BatchExport.
-  - Default: `"false"`
-  - Command line: `--should-export-maps`
-  - Depends on: `SHOULD_EXPORT`
-
-* **FORCE_EXPORT_MAPS** - Forwarded to the Exporter: re-run the map export even if data/maps/<version> is not empty.
-  - Default: `"false"`
-  - Command line: `--force-export-maps`
+* **BATCH_EXPORT_MEMORY_MAX** - Forwarded to the Exporter: memory cap for the export, as a systemd size (e.g. 1536M, 2G). The export sizes its workers from it. 1536M fits beside Valheim (VM 100) on the home server.
+  - Default: `"1536M"`
+  - Command line: `--batch-export-memory-max`
   - Depends on: `SHOULD_EXPORT`
 
 * **HEADLESS** - Forwarded to the Exporter mapper step: launch under gamescope's headless backend. Default true (unattended dev runs).
@@ -480,7 +475,7 @@ directly as dev works too (re-sourcing nvm is a no-op).
 
 #### Parser
 
-* **SHOULD_PARSE_MAPS** - Forwarded to the Parser: cook the 3D maps from data/maps/<version> into the parsed output's Maps/ (and Objects/Map.json). On by default: the push replaces the data repo's current/ with the parsed output, so a parse without maps would remove them from the Site. Unchanged maps come from the Parser's cook cache in seconds.
+* **SHOULD_PARSE_MAPS** - Forwarded to the Parser: cook the 3D maps from exports/<version>/map-export into the parsed output's Maps/ (and Objects/Map.json). On by default: the push replaces the data repo's current/ with the parsed output, so a parse without maps would remove them from the Site. Unchanged maps come from the Parser's cook cache in seconds.
   - Default: `"true"`
   - Command line: `--should-parse-maps`
 

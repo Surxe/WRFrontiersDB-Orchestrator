@@ -1,5 +1,5 @@
-"""The map export and map cook wiring: the Exporter and Parser arguments, the maps dir,
-its retention, and the preflight check that the Parser has a map export to cook.
+"""The export and map cook wiring: the Exporter and Parser arguments, the maps dir (inside
+the export), its retention, and the preflight check that the Parser has a map export to cook.
 
 Run: .venv/bin/python -m unittest discover -s tests -v
 """
@@ -31,8 +31,8 @@ def _options(**over):
     base = dict(
         log_level="INFO", should_download_dependencies=False, should_download_steam_game=False,
         should_get_mapper=False, should_batch_export=False, should_export_textures=False,
-        force_download_dependencies=False, batch_export_release="v1.8.0-test.1", force_steam_download=False,
-        force_get_mapper=False, force_export=False, should_export_maps=True, force_export_maps=False,
+        force_download_dependencies=False, batch_export_release="latest", batch_export_memory_max="1536M",
+        force_steam_download=False, force_get_mapper=False, force_export=False,
         headless=True, manifest_id="latest", steam_username=None, steam_password=None,
         should_export=False, should_parse=True, should_parse_maps=True, should_push_data=False,
         target_branch="main", gh_data_repo_pat=None, should_build_site=False, should_deploy_site=False,
@@ -61,37 +61,37 @@ class StageCommandTests(unittest.TestCase):
             stage.run(options, self.repos, VERSION, self.runlog)
         return recorded["cmd"]
 
-    def test_export_forwards_the_map_export(self):
-        cmd = self._cmd(export_stage, _options(force_export_maps=True))
-        self.assertEqual(_arg(cmd, "--should-export-maps"), "true")
-        self.assertEqual(_arg(cmd, "--force-export-maps"), "true")
-        self.assertEqual(_arg(cmd, "--output-maps-dir"), "/wrf/data/maps/2026-10-06")
-        self.assertEqual(_arg(cmd, "--batch-export-release"), "v1.8.0-test.1")
+    def test_export_forwards_release_and_memory_cap(self):
+        cmd = self._cmd(export_stage, _options(batch_export_memory_max="2G"))
+        self.assertEqual(_arg(cmd, "--batch-export-release"), "latest")
+        self.assertEqual(_arg(cmd, "--batch-export-memory-max"), "2G")
+        self.assertEqual(_arg(cmd, "--output-data-dir"), "/wrf/data/exports/2026-10-06")
+        # The export writes the maps itself; no map or texture flags are forwarded.
+        for removed in ("--should-export-maps", "--force-export-maps", "--output-maps-dir",
+                        "--should-export-textures"):
+            self.assertNotIn(removed, cmd)
 
-    def test_parse_cooks_the_same_map_export(self):
+    def test_parse_cooks_the_map_export_inside_the_export(self):
         cmd = self._cmd(parse_stage, _options())
         self.assertEqual(_arg(cmd, "--should-parse-maps"), "true")
-        self.assertEqual(_arg(cmd, "--maps-export-dir"), "/wrf/data/maps/2026-10-06")
-
-    def test_patch_day_exports_maps(self):
-        self.assertIn("should_export_maps", run._PATCH_DAY_FLAGS)
-        self.assertIn("force_export_maps", run._FORCE_FLAGS)
+        self.assertEqual(_arg(cmd, "--maps-export-dir"), "/wrf/data/exports/2026-10-06/map-export")
 
 
 class RetentionTests(unittest.TestCase):
-    def test_old_map_exports_are_pruned(self):
+    def test_old_map_exports_are_pruned_with_their_export(self):
         with tempfile.TemporaryDirectory() as tmp:
             repos = Repos(wrf_root=Path(tmp), repos_dir=Path(tmp))
             for version in ("2026-09-15", "2026-09-29", "2026-10-06"):
                 (repos.maps_dir_for_version(version) / "maps").mkdir(parents=True)
             repos.prune_old_versions(keep=2)
-            self.assertEqual(sorted(p.name for p in (repos.data_root / "maps").iterdir()), ["2026-09-29", "2026-10-06"])
+            self.assertEqual(sorted(p.name for p in (repos.data_root / "exports").iterdir()), ["2026-09-29", "2026-10-06"])
+            self.assertFalse(repos.maps_dir_for_version("2026-09-15").exists())
 
 
 class PreflightMapsTests(unittest.TestCase):
     def _validate(self, tmp: str, **over):
         repos = Repos(wrf_root=Path(tmp), repos_dir=Path(tmp))
-        repos.exports_dir_for_version(VERSION).mkdir(parents=True)
+        repos.exports_dir_for_version(VERSION).mkdir(parents=True, exist_ok=True)
         (repos.parser_dir / ".venv" / "bin").mkdir(parents=True)
         (repos.parser_dir / ".venv" / "bin" / "python").touch()
         preflight.validate(_options(**over), repos, game_version=VERSION)
@@ -111,6 +111,15 @@ class PreflightMapsTests(unittest.TestCase):
     def test_parse_without_maps_needs_no_map_export(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._validate(tmp, should_parse_maps=False)  # no raise
+
+    def test_a_run_that_exports_needs_no_existing_map_export(self):
+        # The export writes the maps itself. Other export preflight checks (the Exporter
+        # venv) may still fail here; only the map export check matters.
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                self._validate(tmp, should_export=True)
+            except preflight.PreflightError as e:
+                self.assertNotIn("Map export missing", str(e))
 
 
 if __name__ == "__main__":
