@@ -114,12 +114,12 @@ def validate(options, repos: Repos, *, game_version: str) -> None:
             exports_dir = repos.exports_dir_for_version(game_version)
             if not exports_dir.is_dir():
                 errors.append(f"EXPORT dir missing (run export first?): {exports_dir}")
-        # the map cook needs the map export unless this run exports the maps first
-        if options.should_parse and options.should_parse_maps and not (
-                options.should_export and options.should_export_maps):
+        # the map cook needs the map export unless this run exports first (the export
+        # writes the maps itself)
+        if options.should_parse and options.should_parse_maps and not options.should_export:
             maps_dir = repos.maps_dir_for_version(game_version)
             if not (maps_dir / "maps").is_dir():
-                errors.append(f"Map export missing (run with --should-export-maps, or "
+                errors.append(f"Map export missing (run the export first, or "
                               f"--should-parse-maps false): {maps_dir}")
 
     if options.should_push_data:

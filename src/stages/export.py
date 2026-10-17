@@ -1,7 +1,7 @@
 """Export stage — drives WRFrontiers-Exporter.
 
-Steam download -> mapper (.usmap) -> BatchExport (JSON) -> map export (BatchExport's
-map mode, data/maps/<version>). All paths are derived
+Steam download -> mapper (.usmap) -> WRFrontiersDB-CUE4Parse (assets, meshes, and the
+maps into exports/<version>/map-export), under a memory cap. All paths are derived
 from WRF_ROOT; Steam credentials are passed via the environment, not argv.
 The mapper sub-step runs as dev under gamescope headless, which needs the GPU
 runtime dir and /usr/games on PATH (validated 2026-08-22).
@@ -30,20 +30,17 @@ def run(options, repos: Repos, game_version: str, runlog: RunLogger) -> int:
         "--should-download-steam-game", b(options.should_download_steam_game),
         "--should-get-mapper", b(options.should_get_mapper),
         "--should-batch-export", b(options.should_batch_export),
-        "--should-export-textures", b(options.should_export_textures),
         "--force-download-dependencies", b(options.force_download_dependencies),
         "--batch-export-release", options.batch_export_release,
+        "--batch-export-memory-max", options.batch_export_memory_max,
         "--force-steam-download", b(options.force_steam_download),
         "--force-get-mapper", b(options.force_get_mapper),
         "--force-export", b(options.force_export),
-        "--should-export-maps", b(options.should_export_maps),
-        "--force-export-maps", b(options.force_export_maps),
         "--headless", b(options.headless),
         "--manifest-id", options.manifest_id,
         "--steam-game-download-dir", str(repos.steam_download_dir),
         "--output-mapper-file", str(mapper_file),
         "--output-data-dir", str(exports_dir),
-        "--output-maps-dir", str(repos.maps_dir_for_version(game_version)),
         "--wine-prefix", str(repos.wine_prefix),
         "--proton-path", str(repos.proton_path),
     ]

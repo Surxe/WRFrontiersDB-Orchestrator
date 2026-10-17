@@ -191,7 +191,7 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": False,
         "section": "Stages",
-        "help": "Run the Exporter (Steam download, mapper, BatchExport).",
+        "help": "Run the Exporter (Steam download, mapper, WRFrontiersDB-CUE4Parse export).",
     },
     "SHOULD_PARSE": {
         "env": "SHOULD_PARSE",
@@ -276,17 +276,13 @@ OPTIONS_SCHEMA = {
         "env": "BATCH_EXPORT_RELEASE",
         "arg": "--batch-export-release",
         "type": str,
-        # The map export (SHOULD_EXPORT_MAPS) needs BatchExport's map mode, which is only
-        # in a pre-release until CUE4P-BatchExport PR #27 is merged and released; 'latest'
-        # skips pre-releases. Back to 'latest' once a stable release has the map mode.
-        "default": "v1.8.0-test.1",
+        "default": "latest",
         "section": "Exporter",
-        "help": "Forwarded to the Exporter: CUE4P-BatchExport release tag to install. "
+        "help": "Forwarded to the Exporter: WRFrontiersDB-CUE4Parse release tag to install. "
                 "'latest' uses the newest stable release; set a tag (e.g. "
-                "'v1.6.2-test.1') to pin a version. Roll back by setting this to "
-                "'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on. Pinned to the "
-                "map-export pre-release until the map mode is in a stable release.",
-        "links": {"Releases": "https://github.com/Surxe/CUE4P-BatchExport/releases"},
+                "'v2.0.0-test.1') to pin a version. Roll back by setting this to "
+                "'latest' again with SHOULD_DOWNLOAD_DEPENDENCIES on.",
+        "links": {"Releases": "https://github.com/Surxe/WRFrontiersDB-CUE4Parse/releases"},
         "depends_on": ["SHOULD_EXPORT"],
     },
     "SHOULD_DOWNLOAD_STEAM_GAME": {
@@ -334,7 +330,8 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": False,
         "section": "Exporter",
-        "help": "Forwarded to the Exporter: run BatchExport to produce JSON.",
+        "help": "Forwarded to the Exporter: run WRFrontiersDB-CUE4Parse, which exports "
+                "the assets, meshes and maps (maps into exports/<version>/map-export).",
         "depends_on": ["SHOULD_EXPORT"],
     },
     "FORCE_EXPORT": {
@@ -343,7 +340,7 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": False,
         "section": "Exporter",
-        "help": "Forwarded to the Exporter: re-run BatchExport even if the output "
+        "help": "Forwarded to the Exporter: re-run the export even if the output "
                 "directory is not empty.",
         "depends_on": ["SHOULD_EXPORT"],
     },
@@ -353,28 +350,18 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": True,
         "section": "Exporter",
-        "help": "Forwarded to the Exporter/Parser: export and push textures.",
+        "help": "Forwarded to the Parser: push textures. (The export always exports them.)",
         "depends_on": ["SHOULD_EXPORT"],
     },
-    "SHOULD_EXPORT_MAPS": {
-        "env": "SHOULD_EXPORT_MAPS",
-        "arg": "--should-export-maps",
-        "type": bool,
-        "default": False,
+    "BATCH_EXPORT_MEMORY_MAX": {
+        "env": "BATCH_EXPORT_MEMORY_MAX",
+        "arg": "--batch-export-memory-max",
+        "type": str,
+        "default": "1536M",
         "section": "Exporter",
-        "help": "Forwarded to the Exporter: export the released maps with BatchExport's "
-                "map mode into data/maps/<version> (about 1 GB), for the Parser's map cook. "
-                "Reads the map list from the asset export, so it runs after BatchExport.",
-        "depends_on": ["SHOULD_EXPORT"],
-    },
-    "FORCE_EXPORT_MAPS": {
-        "env": "FORCE_EXPORT_MAPS",
-        "arg": "--force-export-maps",
-        "type": bool,
-        "default": False,
-        "section": "Exporter",
-        "help": "Forwarded to the Exporter: re-run the map export even if "
-                "data/maps/<version> is not empty.",
+        "help": "Forwarded to the Exporter: memory cap for the export, as a systemd size "
+                "(e.g. 1536M, 2G). The export sizes its workers from it. 1536M fits beside "
+                "Valheim (VM 100) on the home server.",
         "depends_on": ["SHOULD_EXPORT"],
     },
     "HEADLESS": {
@@ -395,7 +382,7 @@ OPTIONS_SCHEMA = {
         "type": bool,
         "default": True,
         "section": "Parser",
-        "help": "Forwarded to the Parser: cook the 3D maps from data/maps/<version> into "
+        "help": "Forwarded to the Parser: cook the 3D maps from exports/<version>/map-export into "
                 "the parsed output's Maps/ (and Objects/Map.json). On by default: the push "
                 "replaces the data repo's current/ with the parsed output, so a parse "
                 "without maps would remove them from the Site. Unchanged maps come from "
