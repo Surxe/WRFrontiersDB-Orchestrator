@@ -90,13 +90,12 @@ class Repos:
     def prune_old_versions(self, keep: int = 2) -> None:
         """Delete old version directories, keeping only the newest `keep` patches.
 
-        Applied to exports (which hold the map export), parsed, textures, mapper and the
-        legacy data/maps (map exports from before they moved into exports) after a
+        Applied to exports (which hold the map export), parsed, textures and mapper after a
         successful patch run. Sorts by directory name (ISO date string); deletes oldest,
         keeping newest. A no-op if fewer than keep+1 versions exist.
         """
         import shutil
-        for subdir in ["exports", "parsed", "textures", "mapper", "maps"]:
+        for subdir in ["exports", "parsed", "textures", "mapper"]:
             parent = self.data_root / subdir
             if not parent.is_dir():
                 continue
