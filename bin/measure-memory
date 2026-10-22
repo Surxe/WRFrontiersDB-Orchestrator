@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# measure-memory — run a command in its own transient memory cgroup (a systemd user
+# slice) and write a once-a-second CSV of its memory plus a per-stage summary.
+# Nested `systemd-run --user --scope` calls (the Exporter's export) are kept inside
+# the slice. Args pass through to src/measure_memory.py, e.g.
+#   bin/measure-memory --out /tmp/m -p MemoryHigh=2.5G -- bin/run-pipeline ...
+set -uo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$REPO/.venv/bin/python" "$REPO/src/measure_memory.py" "$@"

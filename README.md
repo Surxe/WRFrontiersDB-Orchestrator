@@ -293,6 +293,25 @@ The nvm step matters because the launch is a non-interactive shell: dev's
 `npm run build` dies with `FileNotFoundError: 'npm'`. Running `bin/run-pipeline`
 directly as dev works too (re-sourcing nvm is a no-op).
 
+### Measuring a run's memory
+
+`bin/measure-memory` runs any command in its own transient memory cgroup (a systemd
+user slice) and writes a once-a-second `samples.csv` (memory.current, anon, file,
+shmem, kernel, swap, memory.events, pressure, host MemAvailable/SwapFree, and with
+`--vm 100` the Valheim VM's RSS) plus a per-stage `summary.md`/`summary.json`. The
+Exporter's own `systemd-run --user --scope` is kept inside the slice, so the export
+counts and any limit applies to it too. `-p` sets limits on the slice, to try a
+container-sized cap:
+
+```bash
+bin/measure-memory --out /tmp/mem --vm 100 --stages -p MemoryHigh=2560M -p MemoryMax=2816M \
+  -- bin/run-pipeline --game-version 2026-10-20 --assume-manifest-confirmed --should-parse true ...
+```
+
+`--stages` stamps each sample with the running stage (from the banners and the
+Exporter/Parser markers in the output). The `anon` column is the memory a limit has to
+hold; `file` is cache the kernel can reclaim.
+
 ## Options
 
 <!-- BEGIN_GENERATED_OPTIONS -->
