@@ -293,6 +293,32 @@ The nvm step matters because the launch is a non-interactive shell: dev's
 `npm run build` dies with `FileNotFoundError: 'npm'`. Running `bin/run-pipeline`
 directly as dev works too (re-sourcing nvm is a no-op).
 
+### Checking a run's memory
+
+To see whether a run fits a container-sized limit, run it as a transient systemd
+unit with that limit; `--wait` prints the peak and swap peak when it ends, and a run
+that hits the limit ends in `oom-kill` instead of `success`:
+
+```bash
+systemd-run --user --wait --collect --same-dir -E PATH \
+  -p MemoryMax=2048M -p MemorySwapMax=512M \
+  bin/run-pipeline --game-version 2026-10-20 --assume-manifest-confirmed \
+  --should-push-data false --should-deploy-site false ...
+```
+
+Two things to keep in mind:
+
+- **The export is not counted.** The Exporter starts its own capped scope
+  (`BATCH_EXPORT_MEMORY_MAX`), which systemd places outside this unit. Run without
+  `--force-export` so the export is skipped, or treat its figure as separate. In the
+  real container this does not apply: everything in the guest is inside its limit.
+- **The peak includes file cache**, which the kernel reclaims under a limit, so the
+  uncapped peak overstates the need. The capped run's result is the real answer.
+
+Measured this way on patch 2026-10-20 (no-force): uncapped, a peak of 3.2G with no
+swap; under the limit above, success with no swap. The full investigation is in
+WRFrontiersDB `docs/research/2026-10-pipeline-memory.md`.
+
 ## Options
 
 <!-- BEGIN_GENERATED_OPTIONS -->
