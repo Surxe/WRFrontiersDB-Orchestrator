@@ -319,6 +319,28 @@ Measured this way on patch 2026-10-20 (no-force): uncapped, a peak of 3.2G with 
 swap; under the limit above, success with no swap. The full investigation is in
 WRFrontiersDB `docs/research/2026-10-pipeline-memory.md`.
 
+### Ghidra analysis of the game exe
+
+`bin/ghidra-analyze` is reverse-engineering prep, separate from the pipeline. It pins
+the last-downloaded build's `WRFrontiers-Win64-Shipping.exe` (and `.usmap`) under
+`WRF_ROOT/ghidra/bin/<manifest>/` with a `SHA256SUMS`, then runs Ghidra's headless
+import + auto-analysis into `WRF_ROOT/ghidra/project/WRFrontiers-<manifest>.gpr`.
+Once per manifest; `--force` redoes one. It takes hours, so background it:
+
+```bash
+nohup bin/ghidra-analyze > /srv/dev/wrf/ghidra/logs/run.out 2>&1 &
+```
+
+Needs `GHIDRA_INSTALL_DIR` (dev's `25-rea.sh` in my-system). Tunables and their
+defaults are in the script header.
+
+Query it with `bin/rea-wrf <rea-command> [args]`, e.g.
+`bin/rea-wrf search --pattern SCharacterMovementComponent --json`. It points REA
+at the current build's project (`--manifest <id>` for another), switches to nvm
+Node 24 and adds the target and `--provider ghidra`. REA opens a read-only copy,
+so names it suggests aren't saved; persistent annotations need a Ghidra
+`-process -postScript` run against the project.
+
 ## Options
 
 <!-- BEGIN_GENERATED_OPTIONS -->
