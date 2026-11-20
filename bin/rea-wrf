@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# rea-wrf — run the REA CLI against the current game build's Ghidra analysis.
+#
+#   bin/rea-wrf [--manifest <id>] <rea-command> [<rea args>...]
+#
+# Resolves the build (default: WRF_ROOT/data/steam-download/manifest.txt), points
+# REA at the project bin/ghidra-analyze made for it, switches to nvm Node 24 (the
+# only Node rea is linked under), and execs
+#   rea <rea-command> <pinned exe> <rea args>... --provider ghidra
+# so a query is just e.g. `bin/rea-wrf search --pattern SCharacterMovementComponent`.
+# REA opens a read-only private copy of the project; nothing it does is saved.
+#
+# Env: WRF_ROOT (default /srv/dev/wrf), GHIDRA_INSTALL_DIR (required; dev's
+# 25-rea.sh), JAVA_HOME, GHIDRA_HEADLESS_MAXMEM (default 24G).
+#
+# Output: rea's own output; STOP: a failed gate (exit 1).
+set -uo pipefail
+
+stop() { echo "STOP: $*" >&2; exit 1; }
+
+WRF_ROOT="${WRF_ROOT:-/srv/dev/wrf}"
+G="$WRF_ROOT/ghidra"
+M=""
+if [ "${1:-}" = "--manifest" ]; then
+  M="${2:?--manifest needs an id}"; shift 2
+fi
+[ $# -ge 1 ] || stop "usage: bin/rea-wrf [--manifest <id>] <rea-command> [<rea args>...]"
+CMD="$1"; shift
+
+if [ -z "$M" ]; then
+  [ -r "$WRF_ROOT/data/steam-download/manifest.txt" ] || stop "no manifest.txt; pass --manifest"
+  M="$(tr -d '[:space:]' < "$WRF_ROOT/data/steam-download/manifest.txt")"
+fi
+[[ "$M" =~ ^[0-9]+$ ]] || stop "not a manifest id: '$M'"
+
+EXE="$G/bin/$M/WRFrontiers-Win64-Shipping.exe"
+GPR="$G/project/WRFrontiers-$M.gpr"
+if [ ! -e "$EXE" ] || [ ! -e "$GPR" ]; then
+  stop "build $M isn't analysed yet; run bin/ghidra-analyze"
+fi
+[ -n "${GHIDRA_INSTALL_DIR:-}" ] || stop "GHIDRA_INSTALL_DIR unset (dev's 25-rea.sh sets it; run my-system install.sh)"
+
+# shellcheck disable=SC1091
+source "$HOME/.nvm/nvm.sh" >/dev/null || stop "can't load nvm"
+nvm use 24 >/dev/null || stop "nvm Node 24 missing"
+command -v rea >/dev/null || stop "rea not on PATH under Node 24"
+
+export REA_GHIDRA_PROJECT_PATH="$GPR"
+export REA_GHIDRA_PROGRAM_NAME="WRFrontiers-Win64-Shipping.exe"
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
+export GHIDRA_HEADLESS_MAXMEM="${GHIDRA_HEADLESS_MAXMEM:-24G}"
+
+exec rea "$CMD" "$EXE" "$@" --provider ghidra

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# ghidra-analyze — pin the current game build's shipping exe and run Ghidra's
+# headless import + auto-analysis on it, once per Steam manifest.
+#
+#   bin/ghidra-analyze [--force]
+#
+# The build is the one the pipeline last downloaded: its manifest id comes from
+# WRF_ROOT/data/steam-download/manifest.txt. The exe (plus its .usmap) is copied
+# to WRF_ROOT/ghidra/bin/<manifest>/ with a SHA256SUMS file, so a later download
+# can't swap the file mid-analysis. The Ghidra project is
+# WRF_ROOT/ghidra/project/WRFrontiers-<manifest>.gpr; logs go to
+# WRF_ROOT/ghidra/logs/. Runs in the foreground (hours); background it yourself.
+#
+# --force re-analyses a manifest that already has a project (-overwrite).
+#
+# Env: WRF_ROOT (default /srv/dev/wrf, as in options_schema.py),
+# GHIDRA_INSTALL_DIR (required; set by dev's 25-rea.sh), JAVA_HOME,
+# GHIDRA_MAX_CPU (default 12 — leaves 4 of 16 cores), GHIDRA_HEADLESS_MAXMEM
+# (default 24G; Ghidra's 2G default runs out on this ~190 MB exe),
+# GHIDRA_ANALYSIS_TIMEOUT_S (default 43200 = 12 h backstop).
+#
+# Output: RESULT: progress; STOP: a failed gate (exit 1). Ghidra's exit code is
+# passed through.
+set -uo pipefail
+
+stop() { echo "STOP: $*"; exit 1; }
+
+FORCE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1 ;;
+    *) stop "unknown argument $1" ;;
+  esac
+  shift
+done
+
+WRF_ROOT="${WRF_ROOT:-/srv/dev/wrf}"
+DL="$WRF_ROOT/data/steam-download"
+G="$WRF_ROOT/ghidra"
+MAX_CPU="${GHIDRA_MAX_CPU:-12}"
+TIMEOUT_S="${GHIDRA_ANALYSIS_TIMEOUT_S:-43200}"
+export GHIDRA_HEADLESS_MAXMEM="${GHIDRA_HEADLESS_MAXMEM:-24G}"
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
+
+[ -n "${GHIDRA_INSTALL_DIR:-}" ] || stop "GHIDRA_INSTALL_DIR unset (dev's 25-rea.sh sets it; run my-system install.sh)"
+HEADLESS="$GHIDRA_INSTALL_DIR/support/analyzeHeadless"
+[ -x "$HEADLESS" ] || stop "no analyzeHeadless at $HEADLESS"
+[ -r "$DL/manifest.txt" ] || stop "no $DL/manifest.txt — download the game first"
+M="$(tr -d '[:space:]' < "$DL/manifest.txt")"
+[[ "$M" =~ ^[0-9]+$ ]] || stop "manifest.txt doesn't hold a manifest id: '$M'"
+
+EXE="$(find "$DL" -path '*/WRFrontiers/Binaries/Win64/WRFrontiers-Win64-Shipping.exe' -print -quit)"
+[ -n "$EXE" ] || stop "no WRFrontiers-Win64-Shipping.exe under $DL"
+
+NAME="WRFrontiers-$M"
+PROJECT_DIR="$G/project"
+PIN="$G/bin/$M"
+
+if pgrep -f "AnalyzeHeadless $PROJECT_DIR $NAME" >/dev/null; then
+  stop "an analysis of $NAME is already running"
+fi
+if [ -e "$PROJECT_DIR/$NAME.gpr" ] && [ "$FORCE" -eq 0 ]; then
+  echo "RESULT: $NAME already has a project ($PROJECT_DIR/$NAME.gpr; check its log if a run was interrupted); --force to redo"
+  exit 0
+fi
+
+mkdir -p "$PIN" "$PROJECT_DIR" "$G/logs" || stop "can't create dirs under $G"
+
+# Pin the exe (and the .usmap beside it). Re-pinning the same manifest must be
+# byte-identical; a mismatch means the download changed under the same id.
+if [ -e "$PIN/SHA256SUMS" ]; then
+  (cd "$PIN" && sha256sum --quiet -c SHA256SUMS) || stop "pinned exe in $PIN doesn't match its SHA256SUMS"
+  echo "RESULT: using pinned exe in $PIN"
+else
+  cp -p "$EXE" "$PIN/" || stop "copy of $EXE failed"
+  find "$(dirname "$EXE")" -maxdepth 1 -name '*.usmap' -exec cp -p {} "$PIN/" \;
+  (cd "$PIN" && sha256sum WRFrontiers-Win64-Shipping.exe > SHA256SUMS)
+  if ! cmp -s "$EXE" "$PIN/WRFrontiers-Win64-Shipping.exe"; then
+    stop "pinned copy differs from $EXE"
+  fi
+  echo "RESULT: pinned $EXE -> $PIN"
+fi
+
+OVERWRITE=()
+[ "$FORCE" -eq 1 ] && OVERWRITE=(-overwrite)
+
+echo "RESULT: analysing $NAME (max-cpu $MAX_CPU, heap $GHIDRA_HEADLESS_MAXMEM, timeout ${TIMEOUT_S}s); log $G/logs/analyze-$M.log"
+"$HEADLESS" "$PROJECT_DIR" "$NAME" \
+  -import "$PIN/WRFrontiers-Win64-Shipping.exe" "${OVERWRITE[@]}" \
+  -max-cpu "$MAX_CPU" -analysisTimeoutPerFile "$TIMEOUT_S" \
+  -log "$G/logs/analyze-$M.log" -scriptlog "$G/logs/scripts-$M.log"
+rc=$?
+[ "$rc" -eq 0 ] && echo "RESULT: $NAME analysed" || echo "STOP: analyzeHeadless exited $rc (see $G/logs/analyze-$M.log)"
+exit "$rc"
