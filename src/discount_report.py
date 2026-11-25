@@ -37,10 +37,21 @@ class DiscountReport(RunReport):
             ("Range", a.get("date_range") or "?"),
             ("Post", f"{a.get('title') or '?'} - {a.get('url') or '?'}"),
         ]
+        note = a.get("level_discount_note")
+        facts.append(("Level discount", note or "all levels (no note)"))
         if self.visualizer is not None:
             facts.append(("Visualizer", self.visualizer.describe()))
         return facts
 
     def details(self) -> list[tuple[str, list[str]]]:
-        items = (self.announced or {}).get("items") or []
-        return [("Items sent to the visualizer", list(items))] if items else []
+        a = self.announced or {}
+        items = a.get("items") or []
+        out = []
+        note = a.get("level_discount_note")
+        if note:
+            # Quote the note verbatim so an unclassifiable restriction is always
+            # recoverable from the email, even when the visualizer run fails.
+            out.append(("Level discount note", [note]))
+        if items:
+            out.append(("Items sent to the visualizer", list(items)))
+        return out
