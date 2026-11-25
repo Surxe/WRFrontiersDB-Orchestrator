@@ -36,6 +36,7 @@ ANNOUNCED = {
     "url": "https://example.invalid/news/999-test", "week_id": "2026-10-06",
     "week": "October 6 - 13", "date_range": "10-06 10-13",
     "items": ["Angler", "Some <Item>"], "first_run": False,
+    "level_discount_note": "available only for items at level 9 or higher",
 }
 
 
@@ -158,14 +159,22 @@ class DiscountReportTests(unittest.TestCase):
                          "WRF discount 2026-10-06 - DISPATCHED: 0 warnings, 1 errors")
         body = rep.body()
         self.assertIn("discount run report", body)
-        self.assertIn("Range:  10-06 10-13", body)
+        self.assertIn("Range:", body)
+        self.assertIn("10-06 10-13", body)
         self.assertIn("  Angler", body)
+        self.assertIn("level 9 or higher", body)   # level note is quoted
         self.assertNotIn("unknown", body)          # no parser, no unknown column
         self.assertIn("timeout", body)             # error line is inline
+
+    def test_no_level_note_reports_all_levels(self):
+        rep = self._report()
+        rep.announced = {k: v for k, v in ANNOUNCED.items() if k != "level_discount_note"}
+        self.assertIn(("Level discount", "all levels (no note)"), rep.facts())
 
     def test_html_escapes_items(self):
         html = self._report().body_html()
         self.assertIn("Some &lt;Item&gt;", html)
+        self.assertIn("level 9 or higher", html)
         self.assertNotIn("unknown properties", html)
 
 
